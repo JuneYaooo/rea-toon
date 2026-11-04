@@ -1,0 +1,33 @@
+# 《14亿人都来参加婚礼》→ 孙悟空和白晶晶的婚礼
+# 剧情、分镜、运镜、情绪、配角、原声全部保留；只把新郎换成孙悟空、新娘换成白晶晶。
+# 用法：
+#   rea-toon analyze work/wedding --source "https://v.douyin.com/QcaNeGuOM-A/"
+#   rea-toon plan work/wedding examples/wukong_wedding_h3local/remake.yaml
+#   rea-toon run  work/wedding examples/wukong_wedding_h3local/remake.yaml --until frames   # 先审关键帧
+#   rea-toon run  work/wedding examples/wukong_wedding_h3local/remake.yaml                  # 出视频并拼成片
+name: wukong_wedding_h3local
+style:                     # 留空 = 保持原片的写实电影感画风
+image_channel: cyber       # gpt-image-2（Chybenzun 渠道）
+video_engine: h3local      # 自部署 H3（ComfyUI，经 SSH 隧道）；2–15s 镜头用原镜头做 Ref2VA 动作参考
+motion_ref: true
+frames: first_last
+lipsync: true              # 对白镜头用原人声驱动口型（H3）
+subtitles: reburn
+shots: all
+workers: 1                 # 单卡 5090，串行
+
+cast:
+  groom:
+    name: 孙悟空
+    look: >-
+      写实电影质感的齐天大圣孙悟空：猴脸，脸部是浅肉色的心形面庞，周围一圈浓密的金棕色猴毛，
+      琥珀金色的火眼金睛，额头戴一道金箍，头顶两根长长的凤翅紫金冠翎羽，猴耳，
+      身形和原新郎一样是青年男性的人形身材，神情机灵、自信、有点得意。
+    costume: keep          # 穿新郎的黑西装、白衬衫、黑领带、红色"新郎"胸花
+  bride:
+    name: 白晶晶
+    look: >-
+      白骨精化身的白晶晶：二十出头的东方女子，冷艳又灵动，肤色白皙如瓷，
+      一头及腰的银白色长发盘成新娘发髻，眉心一点淡红色花钿，眼尾微挑，
+      淡淡的妖异气质但很美，原创形象，不像任何真人明星。
+    costume: keep          # 穿新娘的红色秀禾服和金色凤冠步摇
