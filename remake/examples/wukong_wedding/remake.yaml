@@ -2,9 +2,9 @@
 # 剧情、分镜、运镜、情绪、配角、原声全部保留；只把新郎换成孙悟空、新娘换成白晶晶。
 # 用法：
 #   rea-toon analyze work/wedding --source "https://v.douyin.com/QcaNeGuOM-A/"
-#   rea-toon plan work/wedding examples/wukong_wedding/remake.yaml
-#   rea-toon run  work/wedding examples/wukong_wedding/remake.yaml --until frames   # 先审关键帧
-#   rea-toon run  work/wedding examples/wukong_wedding/remake.yaml                  # 出视频并拼成片
+#   rea-toon-remake plan work/wedding remake/examples/wukong_wedding/remake.yaml
+#   rea-toon-remake run  work/wedding remake/examples/wukong_wedding/remake.yaml --until frames   # 先审关键帧
+#   rea-toon-remake run  work/wedding remake/examples/wukong_wedding/remake.yaml                  # 出视频并拼成片
 name: wukong_wedding
 style:                     # 留空 = 保持原片的写实电影感画风
 image_channel: cyber       # gpt-image-2（Chybenzun 渠道）

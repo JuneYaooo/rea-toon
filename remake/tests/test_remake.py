@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
 
-from rea_toon import cache
-from rea_toon.engines.video import H3AutoDL, SeedanceArk
-from rea_toon.spec import RemakeSpec, parse_shots
+from rea_toon_remake import cache
+from rea_toon_remake.engines.video import H3AutoDL, SeedanceArk
+from rea_toon_remake.spec import RemakeSpec, parse_shots
 
 
 def test_parse_shots():
@@ -50,10 +50,10 @@ def _story(tmp_path: Path) -> Path:
 
 
 def test_plan_routes(tmp_path: Path):
-    from rea_toon.remake import Remake
+    from rea_toon_remake.remake import Remake
     work = _story(tmp_path)
     spec = RemakeSpec(name="t")
-    from rea_toon.spec import CastSwap
+    from rea_toon_remake.spec import CastSwap
     spec.cast = {"groom": CastSwap(id="groom", name="孙悟空")}
     plan = Remake(work, spec).plan()
     r1, r2 = plan["shots"]
@@ -65,8 +65,8 @@ def test_plan_routes(tmp_path: Path):
 
 
 def _remake_with(tmp_path: Path, analysis: dict, subtitles=None, performance=None):
-    from rea_toon.remake import Remake
-    from rea_toon.spec import CastSwap
+    from rea_toon_remake.remake import Remake
+    from rea_toon_remake.spec import CastSwap
     work = _story(tmp_path)
     story = json.loads((work / "story.json").read_text(encoding="utf-8"))
     shot = story["shots"][0]
@@ -109,7 +109,7 @@ def test_null_speaker_and_wide_shot(tmp_path: Path):
 
 
 def test_lipsync_segment_not_retimed(tmp_path: Path, monkeypatch):
-    from rea_toon import assemble
+    from rea_toon_remake import assemble
     calls = []
     monkeypatch.setattr(assemble, "run", lambda cmd: calls.append(cmd))
     monkeypatch.setattr(assemble, "probe", lambda p: {"duration": 4.0})
@@ -124,7 +124,7 @@ def test_lipsync_segment_not_retimed(tmp_path: Path, monkeypatch):
 def test_layout_similarity(tmp_path: Path):
     import numpy as np
     import cv2
-    from rea_toon.media import layout_similarity
+    from rea_toon_remake.media import layout_similarity
     rng = np.random.default_rng(0)
     base = (rng.random((180, 320)) * 255).astype(np.uint8)
     base = cv2.GaussianBlur(base, (31, 31), 0)
@@ -137,7 +137,7 @@ def test_layout_similarity(tmp_path: Path):
 
 
 def test_h3local_frames_and_graph(tmp_path: Path):
-    from rea_toon.engines.video import H3Local
+    from rea_toon_remake.engines.video import H3Local
     assert H3Local.frames_for(0.3) == 56 and H3Local.frames_for(5.1) == 124 and H3Local.frames_for(5.4) == 141
     assert H3Local.frames_for(30) == 362 and all((H3Local.frames_for(x) - 5) % 17 == 0 for x in (2.7, 3.3, 6.1))
     eng = H3Local.__new__(H3Local)
@@ -159,7 +159,7 @@ def test_audio_sync_finds_lag(tmp_path):
     import wave
     if not shutil.which("ffmpeg"):
         pytest.skip("ffmpeg missing")
-    from rea_toon.media import audio_sync
+    from rea_toon_remake.media import audio_sync
     rng = np.random.default_rng(0)
     sr, n = 8000, 8000 * 4
     env = np.repeat(rng.random(40) > 0.5, n // 40).astype(float)          # syllable-like on/off pattern
@@ -176,8 +176,8 @@ def test_audio_sync_finds_lag(tmp_path):
 
 
 def test_plan_lists_kept_roles_and_pilot(tmp_path: Path):
-    from rea_toon.remake import Remake
-    from rea_toon.spec import CastSwap
+    from rea_toon_remake.remake import Remake
+    from rea_toon_remake.spec import CastSwap
     work = _story(tmp_path)
     spec = RemakeSpec(name="t")
     spec.cast = {"groom": CastSwap(id="groom", name="孙悟空")}
@@ -188,8 +188,8 @@ def test_plan_lists_kept_roles_and_pilot(tmp_path: Path):
 
 
 def test_plan_covers_whole_film_when_scoped(tmp_path: Path):
-    from rea_toon.remake import Remake
-    from rea_toon.spec import CastSwap
+    from rea_toon_remake.remake import Remake
+    from rea_toon_remake.spec import CastSwap
     work = _story(tmp_path)
     spec = RemakeSpec(name="t", shots="2")
     spec.cast = {"groom": CastSwap(id="groom", name="孙悟空")}
@@ -199,7 +199,7 @@ def test_plan_covers_whole_film_when_scoped(tmp_path: Path):
 
 
 def test_shot_source_reads_disk_not_run_state(tmp_path: Path):
-    from rea_toon.assemble import shot_source
+    from rea_toon_remake.assemble import shot_source
     shot = {"id": "shot_001", "index": 1}
     regen = {"index": 1, "route": "regen", "mode": "ref_video"}
     assert shot_source(shot, {"index": 1, "route": "reuse"}, tmp_path)["status"] == "reuse"
@@ -215,8 +215,8 @@ def test_shot_source_reads_disk_not_run_state(tmp_path: Path):
 
 
 def test_anchors_add_mid_shot_keyframes(tmp_path: Path):
-    from rea_toon.remake import Remake
-    from rea_toon.spec import CastSwap
+    from rea_toon_remake.remake import Remake
+    from rea_toon_remake.spec import CastSwap
     work = _story(tmp_path)
     story = json.loads((work / "story.json").read_text(encoding="utf-8"))
     story["shots"][0]["performance"] = PERF
@@ -236,7 +236,7 @@ def test_anchors_add_mid_shot_keyframes(tmp_path: Path):
 
 
 def test_outfit_keeps_only_clothing():
-    from rea_toon.remake import outfit
+    from rea_toon_remake.remake import outfit
     got = outfit("年轻漂亮女性，棕黑色微卷长发，身材苗条，神色略带骄纵。身穿深色居家真丝睡袍或休闲服。")
     assert got == "身穿深色居家真丝睡袍或休闲服"
     assert "长发" not in outfit("年轻男生，留粉橘色短发（相亲时戴粉红色波浪假发），五官秀气。")
@@ -244,8 +244,8 @@ def test_outfit_keeps_only_clothing():
 
 def test_split_shots_and_object_cast(tmp_path: Path):
     from rea_toon.analyze import split_shots
-    from rea_toon.remake import Remake
-    from rea_toon.spec import CastSwap
+    from rea_toon_remake.remake import Remake
+    from rea_toon_remake.spec import CastSwap
     shots = split_shots([{"index": 1, "start": 0, "end": 12}, {"index": 2, "start": 12, "end": 14}], [6.65, 9.92, 13.9])
     assert [(s["index"], s["start"], s["end"]) for s in shots] == [(1, 0, 6.65), (2, 6.65, 9.92), (3, 9.92, 12), (4, 12, 14)]
     work = _story(tmp_path)
@@ -258,14 +258,14 @@ def test_split_shots_and_object_cast(tmp_path: Path):
 
 
 def test_reburn_size_follows_original_line_width():
-    from rea_toon.assemble import _sub_size
+    from rea_toon_remake.assemble import _sub_size
     s = {"height": 0.0431, "text": "我老姐为了甩掉一个相亲对象", "box": [0.2698, 0.8389, 0.7333, 0.8917]}
     assert 32 <= _sub_size(s, 720, 960) <= 36          # 445px / 13 glyphs
     assert _sub_size({"height": 0.0431, "text": "x"}, 720) == 24  # no box: height fallback
 
 
 def test_restyled_video_prompt_uses_rewritten_motion(tmp_path: Path, monkeypatch):
-    from rea_toon.remake import Remake
+    from rea_toon_remake.remake import Remake
     r, shot = _remake_with(tmp_path, {"change": "small"}, performance=PERF)
     r.spec.style = "森林换成海底，云端换成星空"
     monkeypatch.setattr(Remake, "_restyled_motion", lambda self, s, m: "新主角在海底走")
@@ -279,25 +279,9 @@ def _sub(t0, t1, text, box=(0.4, 0.84, 0.6, 0.88), **k):
     return {"start": t0, "end": t1, "text": text, "box": list(box), **k}
 
 
-def test_name_card_and_disguise_pair():
-    """A name drawn big while its owner is 'absent' points at the disguised person on screen (温月 in a suit)."""
-    from rea_toon.analyze import identity_pairs, mark_cards
-    subs = [_sub(i, i + 1, "这是一句普通的台词") for i in range(6)]
-    card = _sub(9, 10, "温月", box=(0.32, 0.84, 0.53, 0.98))
-    story = {"shots": [{"index": 1, "subtitles": subs, "analysis": {"characters": [{"id": "sister"}, {"id": "brother"}]}},
-                       {"index": 2, "subtitles": [card], "analysis": {"characters": [{"id": "ex"}, {"id": "brother"}]}}],
-             "characters": []}
-    assert mark_cards(story) == 1 and card["card"] and card["speaker"] == "title"
-    chars = [{"id": "sister", "role": "姐姐（温月）", "shots": [1, 3]}, {"id": "brother", "role": "弟弟", "shots": [1, 2, 3]},
-             {"id": "ex", "role": "前男友", "shots": [2]}]
-    pairs = identity_pairs(story, chars)
-    assert ("sister", "ex") in pairs and "人名卡" in pairs[("sister", "ex")][0]
-    assert not any("brother" in k for k in pairs)  # always on screen with both: never a suspect
-
-
 def test_per_line_speakers_drive_mouths(tmp_path: Path):
     """Back-and-forth dialogue: each line names its own speaker; off-screen lines close every mouth on screen."""
-    from rea_toon.remake import Remake
+    from rea_toon_remake.remake import Remake
     shot = {"index": 1, "start": 10.0, "duration": 3.0, "analysis": {"speaker": "ceo"}, "subtitles": [
         {"start": 10.0, "end": 11.5, "text": "我这个人条件比较特别", "speaker": "bro", "on_screen": False},
         {"start": 11.5, "end": 12.4, "text": "说来听听", "speaker": "ceo", "on_screen": True},
@@ -307,7 +291,7 @@ def test_per_line_speakers_drive_mouths(tmp_path: Path):
     assert Remake._speaker(shot) == "ceo"
     r = Remake.__new__(Remake)
     r.chars = {"bro": {"role": "弟弟"}, "ceo": {"role": "总裁"}}
-    from rea_toon.spec import CastSwap
+    from rea_toon_remake.spec import CastSwap
     r.spec = RemakeSpec(name="t", cast={"ceo": CastSwap(id="ceo", name="猫总", look="猫")})
     text = r._speaking_text(shot, audio=True)
     assert "画外的弟弟在说话" in text and "1.5–2.4s 总裁（猫总）说话" in text and "其他角色嘴巴闭着" in text
@@ -316,7 +300,7 @@ def test_per_line_speakers_drive_mouths(tmp_path: Path):
 
 
 def test_frozen_rule_against_original():
-    from rea_toon import media
+    from rea_toon_remake import media
     def fake(c, o):
         vals = {"clip": c, "orig": o}
         return lambda v, s=0, d=None: vals["clip" if str(v) == "clip" else "orig"]
@@ -331,53 +315,13 @@ def test_frozen_rule_against_original():
 
 def test_offscreen_lines_are_muted_for_lipsync():
     """An audio-driven clip moves the visible mouth to every voice it hears: off-camera lines are silenced."""
-    from rea_toon.remake import Remake
+    from rea_toon_remake.remake import Remake
     shot = {"index": 1, "start": 10.0, "duration": 3.0, "subtitles": [
         {"start": 10.0, "end": 11.6, "text": "a", "speaker": "bro", "on_screen": False},
         {"start": 11.5, "end": 12.4, "text": "b", "speaker": "ceo", "on_screen": True}]}
     r = Remake.__new__(Remake)
     assert r._offscreen(shot) == [(0.0, 1.5)]  # the overlap with the on-camera line stays audible
     assert r._offscreen({**shot, "subtitles": [{**x, "speaker": None} for x in shot["subtitles"]][:0]}) == []
-
-
-def test_scenes_cover_all_shots_and_scene_looks():
-    from rea_toon.breakdown import _fix_scenes, look_in
-    sc = _fix_scenes([{"shots": [3, 5]}, {"shots": [1, 2]}, {"shots": [8, 20]}, {"shots": [4, 6]}], 10)
-    assert [s["shots"] for s in sc] == [[1, 2], [3, 5], [6, 7], [8, 10]] and [s["id"] for s in sc] == ["S1", "S2", "S3", "S4"]
-    story = {"breakdown": {"scenes": [{"id": "S1", "shots": [1, 4],
-                                       "looks": {"bro": {"wear": "黄色卫衣", "hair": "粉色长假发", "face": "白面膜"},
-                                                 "sis": {"wear": "睡袍", "hair": "棕色长卷发", "props": "鸡毛掸子"}},
-                                       "changes": [{"shot": 3, "who": "bro", "wear": "黄色卫衣", "hair": "粉橘色短发"}]}]}}
-    assert look_in(story, "bro", 2, dress=True) == "黄色卫衣；粉色长假发；白面膜"
-    assert look_in(story, "bro", 4, dress=True) == "黄色卫衣"            # wig off, face mask gone
-    assert look_in(story, "bro", 4) == "黄色卫衣；粉橘色短发"
-    assert look_in(story, "sis", 1, dress=True) == "睡袍；鸡毛掸子"      # own hair is not carried to a new character
-    assert look_in(story, "bro", 9) == "" and look_in(story, "crowd", 1) == ""
-
-
-def test_risks_and_lint_and_lock(tmp_path: Path):
-    from rea_toon.breakdown import lint, lock, lock_state, require_locked, risks
-    work = _story(tmp_path)
-    story = json.loads((work / "story.json").read_text(encoding="utf-8"))
-    s1 = story["shots"][0]
-    s1["analysis"].update(in_first=[], in_last=["groom"], characters=[{"id": "groom", "action": "举起酒杯"}])
-    s1["subtitles"] = [dict(SUB[0], speaker="chef", on_screen=False), dict(SUB[0], text="好", speaker="groom")]
-    s1["key"] = {"transition_in": "white_flash"}
-    assert {"offscreen_line", "multi_speaker", "entrance", "flash_in", "hands"} <= set(risks(story, s1))
-    msgs = [x["msg"] for x in lint(story) if x["level"] == "error"]
-    assert any("深度拆解" in m for m in msgs) and any("表演拆解" in m for m in msgs)
-    (work / "story.json").write_text(json.dumps(story, ensure_ascii=False), encoding="utf-8")
-    import pytest
-    with pytest.raises(ValueError):
-        lock(work)
-    lock(work, force=True)
-    story = json.loads((work / "story.json").read_text(encoding="utf-8"))
-    assert lock_state(story) == "locked"
-    require_locked(story)
-    story["shots"][0]["subtitles"][0]["speaker"] = "groom"  # edited after review
-    assert lock_state(story) == "stale"
-    with pytest.raises(RuntimeError):
-        require_locked(story)
 
 
 def test_remake_dresses_from_scene_and_keeps_the_beat(tmp_path: Path):
@@ -395,7 +339,7 @@ def test_remake_dresses_from_scene_and_keeps_the_beat(tmp_path: Path):
 
 def test_inner_monologue_keeps_mouths_shut(tmp_path: Path):
     """A character's own thoughts: their voice, on camera, but nobody's mouth moves (and the voice is muted for lipsync)."""
-    from rea_toon.remake import Remake
+    from rea_toon_remake.remake import Remake
     from rea_toon.subtitles import line_mode
     from rea_toon.breakdown import risks
     assert line_mode({"on_screen": False}) == "off" and line_mode({}) == "on"  # older story.json
@@ -405,7 +349,7 @@ def test_inner_monologue_keeps_mouths_shut(tmp_path: Path):
         {"start": 1.5, "end": 2.6, "text": "沈总请坐", "speaker": "bro", "mode": "on", "on_screen": True}]}
     r = Remake.__new__(Remake)
     r.chars = {"bro": {"role": "弟弟"}, "ceo": {"role": "总裁"}}
-    from rea_toon.spec import CastSwap
+    from rea_toon_remake.spec import CastSwap
     r.spec = RemakeSpec(name="t", cast={"ceo": CastSwap(id="ceo", name="猫总", look="猫")})
     text = r._speaking_text(shot, audio=True)
     assert "内心独白" in text and "嘴巴闭着" in text and "1.5–2.6s 弟弟说话" in text
@@ -425,7 +369,7 @@ def test_function_goes_into_prompts(tmp_path: Path):
 
 
 def test_two_people_frame_check_names_places(tmp_path: Path):
-    from rea_toon.spec import CastSwap
+    from rea_toon_remake.spec import CastSwap
     r, shot = _remake_with(tmp_path, {"characters": [{"id": "groom", "where": "画面左侧"},
                                                      {"id": "bride", "where": "画面右侧"}]})
     r.chars["bride"] = {"id": "bride", "role": "新娘"}
@@ -437,8 +381,8 @@ def test_two_people_frame_check_names_places(tmp_path: Path):
 
 def test_scene_anchor_reference(tmp_path: Path):
     """Shots of one scene look at the scene's anchor (most faces, then must, then closer); a star, not a chain."""
-    from rea_toon.remake import Remake
-    from rea_toon.spec import CastSwap
+    from rea_toon_remake.remake import Remake
+    from rea_toon_remake.spec import CastSwap
     work = _story(tmp_path)
     story = json.loads((work / "story.json").read_text(encoding="utf-8"))
     mk = lambda i, size, vis: {"id": f"shot_{i:03d}", "index": i, "start": i, "end": i + 2, "duration": 2, "subtitles": [],
@@ -460,20 +404,6 @@ def test_scene_anchor_reference(tmp_path: Path):
     assert not any(p.get("scene_ref") for p in r.plan()["shots"])
 
 
-def test_story_day_carries_looks_and_flags_outfit_jumps():
-    from rea_toon.breakdown import look_in, lint
-    story = {"characters": [{"id": "sis", "importance": "lead"}], "shots": [], "breakdown": {"scenes": [
-        {"id": "S1", "shots": [1, 3], "day": "D1", "looks": {"sis": {"wear": "红色连衣裙", "props": "右手拿着半杯红酒"}},
-         "changes": [{"shot": 3, "who": "sis", "wear": "红色连衣裙", "props": "空酒杯"}]},
-        {"id": "S2", "shots": [4, 5], "day": "D1", "looks": {}},                       # only her hand in frame
-        {"id": "S3", "shots": [6, 7], "day": "D1", "flashback": True, "looks": {}},    # a memory: not the same day
-        {"id": "S4", "shots": [8, 9], "day": "D1", "looks": {"sis": {"wear": "灰色运动卫衣和牛仔裤"}}}]}}
-    assert look_in(story, "sis", 4) == "红色连衣裙；空酒杯"  # end-of-S1 state, prop state included
-    assert look_in(story, "sis", 6) == ""
-    msgs = [x["msg"] for x in lint(story)]
-    assert any("同一剧情日 D1" in m and "S4" in m for m in msgs)
-
-
 def test_screen_text_ocr_and_keyframe_lines(tmp_path: Path, monkeypatch):
     from rea_toon import subtitles, breakdown
     work = tmp_path
@@ -488,7 +418,7 @@ def test_screen_text_ocr_and_keyframe_lines(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(subtitles, "read_text", lambda f, *a: reads[Path(f).name])
     found = breakdown._ocr_shot(work, shot)
     assert [(x["text"], x["frames"]) for x in found] == [("云顶餐厅", ["first", "mid"]), ("震惊!", ["mid"])]
-    from rea_toon.remake import Remake
+    from rea_toon_remake.remake import Remake
     r = Remake.__new__(Remake)
     r.spec = RemakeSpec(name="t")
     shot["screen_text"] = [{**found[0], "kind": "scene"}, {**found[1], "kind": "overlay"}]
@@ -504,7 +434,7 @@ def test_screen_text_ocr_and_keyframe_lines(tmp_path: Path, monkeypatch):
 
 
 def test_overlay_redrawn_on_regenerated_shot(monkeypatch):
-    from rea_toon import assemble
+    from rea_toon_remake import assemble
     monkeypatch.setattr(assemble, "font_path", lambda: "/f.ttf")
     shot = {"start": 10.0, "end": 13.0, "duration": 3.0, "screen_text": [
         {"text": "震惊", "kind": "overlay", "box": [0.6, 0.3, 0.9, 0.4], "t0": 10.5, "t1": 12.0, "color": "#FFD000"},
@@ -514,50 +444,13 @@ def test_overlay_redrawn_on_regenerated_shot(monkeypatch):
 
 
 def test_likeness_skips_animals_and_seed_budget(tmp_path: Path):
-    from rea_toon.remake import Remake
-    from rea_toon.spec import CastSwap
+    from rea_toon_remake.remake import Remake
+    from rea_toon_remake.spec import CastSwap
     r, _ = _remake_with(tmp_path, {})
     assert r._human("groom")
     r.spec.cast["groom"] = CastSwap(id="groom", name="橘子（博美犬）", look="一只真实的博美犬")
     assert not r._human("groom")
     assert Remake.SYNC_TRIES == 2
-
-
-def test_freeze_and_transient_detection(tmp_path: Path):
-    """A held last second is a freeze, motion before it is not; clicks over quiet noise are transients."""
-    import subprocess
-    from rea_toon.media import still_runs, transients
-    v = tmp_path / "v.mp4"
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=1",
-                    "-vf", "tpad=stop_mode=clone:stop_duration=1", "-pix_fmt", "yuv420p", str(v)], check=True)
-    runs = still_runs(v, 0, 2.0)
-    assert len(runs) == 1 and abs(runs[0][0] - 1.0) < 0.1 and runs[0][1] > 1.8
-    a = tmp_path / "a.wav"
-    expr = "0.01*random(0)+if(between(t,0.8,0.82)+between(t,2.3,2.32),0.9*sin(2*PI*900*t),0)"
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"aevalsrc='{expr}':s=16000:d=4", str(a)], check=True)
-    hits = [t for t, z in transients(a)]
-    assert any(abs(t - 0.8) < 0.05 for t in hits) and any(abs(t - 2.3) < 0.05 for t in hits)
-
-
-def test_contacts_snap_to_the_hit(tmp_path: Path, monkeypatch):
-    from rea_toon import breakdown, media
-    shot = {"id": "shot_072", "index": 72, "start": 193.5, "end": 195.6, "duration": 2.1,
-            "analysis": {"characters": [{"id": "sister", "action": "把红酒泼向沈冠宇"}]}}
-    calm = {"id": "shot_001", "index": 1, "start": 0, "end": 2, "duration": 2, "analysis": {"characters": [{"id": "a", "action": "看着窗外"}]}}
-    story = {"audio": {"music": "m.wav"}, "characters": [], "shots": [calm, shot]}
-    (tmp_path / "m.wav").write_bytes(b"x")
-    monkeypatch.setattr(media, "transients", lambda p: [(12.0, 30.0), (193.8, 11.9), (194.06, 10.0)])
-    monkeypatch.setattr(media, "frame_at", lambda v, t, out: out)
-
-    class FakeVLM:
-        calls = 0
-        def ask_json(self, prompt, images, **kw):
-            FakeVLM.calls += 1
-            return {"contacts": [{"who": "sister", "to": "shen", "action": "泼酒", "t": 0.45, "hand": "左手"}]}
-    assert breakdown.contacts(story, tmp_path, FakeVLM()) == 1 and FakeVLM.calls == 1  # the calm shot costs nothing
-    c = shot["contacts"][0]
-    assert c["sound"] and c["t"] == 0.3  # snapped to the strongest onset within 0.3 s
-    assert "contact" in breakdown.risks(story, shot)
 
 
 def test_contact_staging_slow_in_video_prompt_and_anchor(tmp_path: Path):
@@ -575,7 +468,7 @@ def test_contact_staging_slow_in_video_prompt_and_anchor(tmp_path: Path):
 
 
 def test_freeze_label_and_aigc_mark(monkeypatch):
-    from rea_toon import assemble
+    from rea_toon_remake import assemble
     monkeypatch.setattr(assemble, "font_path", lambda: "/f.ttf")
     assert assemble._freeze_filter({"freeze": [[1.5, 3.0]]}, 24) == "freezeframes=first=36:last=71:replace=36"
     story = {"shots": [{"screen_text": [{"text": "AI生成", "kind": "aigc", "box": [0.02, 0.03, 0.12, 0.05]}]},
@@ -588,7 +481,7 @@ def test_freeze_label_and_aigc_mark(monkeypatch):
 
 
 def test_voice_mismatch(tmp_path: Path):
-    from rea_toon.spec import CastSwap
+    from rea_toon_remake.spec import CastSwap
     r, shot = _remake_with(tmp_path, {"speaker": "groom"}, SUB)
     r.chars["groom"]["role"] = "新郎"
     r.spec.cast["groom"] = CastSwap(id="groom", name="白雪公主", look="黑发少女，红唇")
@@ -604,7 +497,8 @@ def test_still_picture_motion_and_kenburns(tmp_path: Path):
     import subprocess
     import cv2
     import numpy as np
-    from rea_toon.media import image_motion, kenburns
+    from rea_toon.media import image_motion
+    from rea_toon_remake.media import kenburns
     rng = np.random.default_rng(1)
     img = cv2.resize((rng.random((36, 64, 3)) * 255).astype(np.uint8), (640, 360), interpolation=cv2.INTER_CUBIC)
     for k in range(40):  # some edges for the features
@@ -630,14 +524,14 @@ def test_still_picture_motion_and_kenburns(tmp_path: Path):
 
 
 def test_kenburns_route_skips_the_video_model(tmp_path: Path):
-    from rea_toon.spec import CastSwap
+    from rea_toon_remake.spec import CastSwap
     work = _story(tmp_path)
     story = json.loads((work / "story.json").read_text(encoding="utf-8"))
     path = [[0.0, 0.15, 0.1, 0.85, 0.8], [3.0, 0, 0, 1, 1]]
     story["shots"][0]["motion"] = {"kind": "pan", "base": "last", "path": path}
     story["shots"][0]["analysis"]["in_last"] = ["groom"]
     (work / "story.json").write_text(json.dumps(story, ensure_ascii=False), encoding="utf-8")
-    from rea_toon.remake import Remake
+    from rea_toon_remake.remake import Remake
     spec = RemakeSpec(name="t", cast={"groom": CastSwap(id="groom", name="孙悟空")})
     plan = Remake(work, spec).plan()
     p = plan["shots"][0]
@@ -654,7 +548,7 @@ def test_kenburns_route_skips_the_video_model(tmp_path: Path):
 
 def test_comic_elements_in_prompts_and_risks(tmp_path: Path):
     from rea_toon.breakdown import risks
-    from rea_toon.spec import CastSwap
+    from rea_toon_remake.spec import CastSwap
     r, shot = _remake_with(tmp_path, {"characters": [{"id": "groom", "where": "中间"}]})
     shot["staging"] = {"angle": "eye", "people": {}, "effects": [{"what": "剑气", "color": "蓝色", "from": "groom"}],
                        "marks": ["汗滴"], "panels": 3}
@@ -672,7 +566,7 @@ def test_comic_elements_in_prompts_and_risks(tmp_path: Path):
 
 def test_expression_list_and_sheet_refs(tmp_path: Path):
     from rea_toon import breakdown
-    from rea_toon.spec import CastSwap
+    from rea_toon_remake.spec import CastSwap
     story = {"characters": [{"id": "groom", "role": "新郎", "importance": "lead"}, {"id": "crowd", "importance": "extra"}],
              "shots": [{"index": i, "analysis": {"characters": [{"id": "groom", "expression": e, "visibility": "face"}]}}
                        for i, e in enumerate(["冷笑", "嘴角上扬地嘲讽", "震惊", "愤怒"], 1)]}

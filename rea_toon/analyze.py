@@ -24,7 +24,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from . import subtitles as subs_mod
-from .engines.vlm import VLM
+from .vlm import VLM
 from .media import aspect_of, font_path, frame_at, probe
 from .prompts import CAST_PROMPT, IDENTITY_PROMPT, LINE_SPEAKER_PROMPT, PERFORMANCE_PROMPT, SHOT_PROMPT, SUBS_PROOFREAD_PROMPT
 

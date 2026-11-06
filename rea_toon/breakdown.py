@@ -27,7 +27,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from .engines.vlm import VLM
+from .vlm import VLM
 from .prompts import BEATS_PROMPT, SCENE_LOOKS_PROMPT, SCENES_PROMPT
 from .subtitles import MODE_CN, line_mode
 
@@ -855,21 +855,7 @@ def _write_md(story: dict, work: Path) -> None:
     (work / "breakdown.md").write_text("\n".join(L) + "\n", encoding="utf-8")
 
 
-_CSS = """
-:root{--bg:#fafaf8;--card:#fff;--fg:#1d1d1b;--muted:#6b6b66;--line:#e4e3de;--must:#c2410c;--high:#a16207;--err:#b91c1c;--warn:#a16207;--chip:#f1f0eb}
-@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#161615;--card:#1f1f1d;--fg:#ecebe6;--muted:#a3a29b;--line:#34332f;--must:#fb923c;--high:#facc15;--err:#f87171;--warn:#facc15;--chip:#2a2926}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,"PingFang SC","Noto Sans SC",sans-serif}
-main{max-width:1180px;margin:0 auto;padding:24px 16px 64px}h1{font-size:22px;margin:0 0 4px}h2{font-size:17px;margin:32px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
-.muted{color:var(--muted)}.state{display:inline-block;padding:2px 10px;border-radius:99px;background:var(--chip);font-weight:600}
-.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}
-.card img{width:100%;border-radius:6px;display:block}.pics{display:flex;gap:6px}.pics img{width:50%}
-.chip{display:inline-block;padding:1px 8px;margin:2px 4px 2px 0;border-radius:99px;background:var(--chip);font-size:12px}
-.must{color:var(--must);font-weight:700}.high{color:var(--high);font-weight:600}.err{color:var(--err)}.warn{color:var(--warn)}
-.shot{display:grid;grid-template-columns:200px 1fr;gap:12px;padding:10px 0;border-top:1px solid var(--line)}.shot img{width:100%;border-radius:6px}
-.shot.must{border-left:3px solid var(--must);padding-left:10px}.lines div{margin:2px 0}.off{color:var(--muted)}
-.scene{margin:18px 0 4px;font-weight:600}ul{margin:4px 0;padding-left:20px}
-@media (max-width:640px){.shot{grid-template-columns:1fr}}
-"""
+from .page import CSS as _CSS  # noqa: E402  (shared with report / series pages)
 
 
 def _write_html(story: dict, work: Path) -> None:

@@ -2,9 +2,9 @@
 # 剧情、分镜、运镜、情绪、台词和原声全部保留；所有角色换成西游记人物，群众换成各路神仙妖怪。
 # 场景和道具（停车场、汽车、大锅、宴席、太空舱）不变，神仙妖怪照样开车、吃席，反差即笑点。
 # 用法：
-#   rea-toon plan work/wedding examples/xiyou_wedding_h3local/remake.yaml
-#   rea-toon run  work/wedding examples/xiyou_wedding_h3local/remake.yaml --until frames   # 先审关键帧
-#   rea-toon run  work/wedding examples/xiyou_wedding_h3local/remake.yaml                  # 出视频并拼成片
+#   rea-toon-remake plan work/wedding remake/examples/xiyou_wedding_h3local/remake.yaml
+#   rea-toon-remake run  work/wedding remake/examples/xiyou_wedding_h3local/remake.yaml --until frames   # 先审关键帧
+#   rea-toon-remake run  work/wedding remake/examples/xiyou_wedding_h3local/remake.yaml                  # 出视频并拼成片
 name: xiyou_wedding_h3local
 style:                     # 留空 = 保持原片的写实电影感画风
 image_channel: cyber

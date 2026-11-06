@@ -25,8 +25,8 @@ from . import cache
 from .engines import GptImage2, make_video_engine
 from .prompts import (RESTYLE_MOTION_PROMPT, CLIP_CHECK_PROMPT, EXPRESSION_REF_HINT, EXPRESSION_SHEET_PROMPT, LIKENESS_PROMPT, ORIGINAL_FACE_NOTE, CROWD_SHEET_PROMPT, FRAME_CHECK_PROMPT, FRAME_RESTYLE_PROMPT, FRAME_SWAP_PROMPT, LAST_FRAME_HINT, SCENE_REF_HINT, SHEET_FROM_IMAGE_PROMPT,
                       REF_VIDEO_PROMPT, SHEET_PROMPT, VIDEO_PROMPT)
-from .breakdown import look_in, require_locked, scene_of
-from .subtitles import line_mode
+from rea_toon.breakdown import look_in, require_locked, scene_of
+from rea_toon.subtitles import line_mode
 from .spec import RemakeSpec, parse_shots
 
 LOG = logging.getLogger(__name__)
@@ -91,7 +91,7 @@ class Remake:
     @property
     def vlm(self):
         if self._vlm is None:
-            from .engines.vlm import VLM
+            from rea_toon.vlm import VLM
             self._vlm = VLM(cache_dir=self.work / "analysis" / "vlm_cache")
         return self._vlm
 
@@ -533,7 +533,7 @@ class Remake:
         return out
 
     def _drawn_motion(self, shot: dict) -> str:
-        from .breakdown import _where
+        from rea_toon.breakdown import _where
         st = shot.get("staging") or {}
         out = []
         if self._effects(shot):
@@ -558,7 +558,7 @@ class Remake:
         want = [t for t in self._texts_in(shot, name, ("scene", "bubble")) if t["box"][3] - t["box"][1] >= 0.025]
         if not want:
             return []
-        from .subtitles import read_text, similar_text
+        from rea_toon.subtitles import read_text, similar_text
         try:
             got = [r["text"] for r in read_text(out, 0.5)]
         except Exception as exc:  # OCR missing: no text check
@@ -1023,7 +1023,7 @@ class Remake:
 
     def _gaze(self, shot: dict) -> str:
         """Which way each face points and whom it looks at, from the breakdown's staging pass."""
-        from .breakdown import FACING_CN
+        from rea_toon.breakdown import FACING_CN
         st = shot.get("staging") or {}
         rows = []
         for cid, v in (st.get("people") or {}).items():
@@ -1039,7 +1039,7 @@ class Remake:
         return "；".join(rows)
 
     def _staging_text(self, shot: dict) -> str:
-        from .breakdown import ANGLE_CN
+        from rea_toon.breakdown import ANGLE_CN
         st = shot.get("staging") or {}
         out = []
         if st.get("angle") in ("high", "low", "dutch", "pov", "ots"):

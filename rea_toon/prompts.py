@@ -1,4 +1,4 @@
-"""All model prompts in one place."""
+"""Prompts of the breakdown (analysis, deep breakdown, report, series). The remake keeps its own in rea_toon_remake."""
 
 CAST_PROMPT = """你在给一部 AI 短剧做"剧本逆向"。下面几张图是这条视频的分镜联系表：每个格子是一个镜头的中间帧，左上角白底黑字是镜头编号。
 每个镜头的字幕（OCR，可能有误）：
@@ -21,6 +21,7 @@ CAST_PROMPT = """你在给一部 AI 短剧做"剧本逆向"。下面几张图是
 {{"summary": "...", "style": "...", "palette": "...",
   "characters": [{{"id": "groom", "role": "新郎", "importance": "lead", "appearance": "...", "shots": [1, 4]}}]}}
 """
+
 
 SHOT_PROMPT = """你在给一部 AI 短剧做逐镜头拆解，目的是之后用"首帧/尾帧 + 视频模型"把这个镜头重新生成出来，
 并且可能把其中某些角色换成别的形象。剧情：{summary}
@@ -55,52 +56,6 @@ SHOT_PROMPT = """你在给一部 AI 短剧做逐镜头拆解，目的是之后�
 }}
 """
 
-SHEET_PROMPT = """角色设定图（character reference sheet），{style}。
-同一角色画三次：左边正面全身、中间正面半身特写（看清脸和发型）、右边 3/4 侧面半身。纯浅灰背景，没有文字、没有标注。
-角色：{name}。{look}
-服装：{costume}
-要求：五官、发型、服装在三个视图里完全一致；比例自然；高清细节。"""
-
-CROWD_SHEET_PROMPT = """群像设定图，{style}。
-十几个各不相同的角色站成前后两排、全身可见，用来统一一大群路人/宾客的造型：{name}。{look}
-服装：{costume}
-纯浅灰背景，没有文字、没有标注；每个角色造型都不同，但整体风格统一；高清细节。"""
-
-SHEET_FROM_IMAGE_PROMPT = """以图1中的角色为准，画一张角色设定图（character reference sheet），{style}。
-同一角色画三次：左边正面全身、中间正面半身特写、右边 3/4 侧面半身。纯浅灰背景，没有文字。
-保持图1角色的脸、发型、标志性特征完全一致。{extra}
-服装：{costume}"""
-
-FRAME_SWAP_PROMPT = """图1 是一部短剧的原始画面。请在图1基础上做"换角色"编辑，输出一张新的画面：
-- 严格保持图1的构图、机位、景别、透视、光线、色调、背景、道具和其他所有人物不变；亮度和曝光也和图1一样（图1是暗的、逆光的或在转场里，新画面也一样暗）。
-{swaps}
-- 被替换的角色保持图1里原来的姿势、动作、朝向、表情和情绪（{emotion}），只替换身份外貌{costume_rule}。
-- 去掉画面上后期叠加的字幕、标题、水印和台标（场景里真实存在的文字保留）。
-{style_rule}
-输出与图1相同比例的完整画面。"""
-
-FRAME_RESTYLE_PROMPT = """图1 是一部短剧的原始画面。请把整个画面重绘为：{style}。
-- 保持图1的构图、机位、景别、人物位置、姿势、动作、表情、情绪（{emotion}）和场景元素一一对应。
-{swaps}
-- 去掉画面上后期叠加的字幕、标题、水印和台标。
-输出与图1相同比例的完整画面。"""
-
-FRAME_CHECK_PROMPT = """图1 是短剧的原始画面，图2 是把其中角色换成新形象后的画面。被替换的角色：{who}。
-换脸、换发型发色、妆容、服装按设定变化，以及去掉了后期叠加的字幕/水印，都是预期的，不算问题。只检查图2 是否保住了图1 的画面：
-1. 被替换角色在图2 中的位置、大小（占画面的比例）、朝向、姿势是否和图1 一致（远处的小人不能被放大）；
-2. 图1 里的画面元素（镜头框/取景器等叠加元素、前景人物、道具、背景、景别）是否都还在、位置一致；
-3. 有没有新增、删除或交换人物；{places}
-4. 被替换角色的表情和情绪是否和图1 一致。
-另外判断 tiny：除群众/路人之外的被替换角色，在图1 中是否都小到看不清五官（或根本看不到）；如果只替换了群众，则群众全是远处小人时为 true。只要有一个主要角色看得清脸，tiny 就是 false。
-但如果新角色不是人（动物、机器人等），图1 里看得见这个角色的手、脚、腿或身体轮廓时 tiny 一定是 false：换成动物后这些部位也必须变成动物的。
-如果新角色不是人（动物、机器人等），图2 里任何位置（包括远处背景的顾客、路人、服务员的手）出现人类的脸、手、皮肤，ok 一定是 false。
-只输出 JSON：{{"ok": true 或 false, "tiny": true 或 false, "problems": ["具体问题，写清楚应该怎样，例如：新人在图1 中只占画面中心很小的一点，图2 把他们放大到占画面三分之一"]}}"""
-
-LAST_FRAME_HINT = "\n- 图{n} 是同一镜头已经改好的首帧：新画面中角色的长相、服装、画风必须与图{n}完全一致。"
-
-# Same scene, another shot already edited (the scene's anchor): one look per scene instead of one per shot.
-SCENE_REF_HINT = ("\n- 图{n} 是同一场戏里已经改好的另一个镜头（第 {anchor} 镜）：{names}的长相、毛色/发色/发型、体型、标志性特征"
-                  "{dress}必须和图{n}里一模一样；构图、机位、姿势、表情、背景只以图1为准，不要照抄图{n}的画面。")
 
 PERFORMANCE_PROMPT = """你在给一部 AI 短剧做"表演拆解"，目的是让视频模型在换了角色之后，逐秒复现原镜头里演员的表演。
 下面 {n} 张图是同一个镜头按时间顺序抽的帧（镜头时长 {duration:.2f}s），每张图的时间点（相对镜头开头）依次是：{times}。
@@ -121,28 +76,6 @@ PERFORMANCE_PROMPT = """你在给一部 AI 短剧做"表演拆解"，目的是�
   "motion": "给视频模型的一段镜头描述：场景、人物站位和朝向、运镜、动作和表情变化，必须和 beats 一致",
   "avoid": ["和原片相比视频模型容易做错、需要明确禁止的表演，比如：不要笑、不要转头看镜头"]}}"""
 
-VIDEO_PROMPT = """{motion}
-景别：{shot_size}；运镜：{camera_move}。整体情绪：{emotion}。
-{performance}{speaking}画面保持首帧的人物长相、服装和画风一致，表演力度和原片一致，不要出现字幕和文字。"""
-
-# Self-hosted H3 Ref2VA: the original shot drives motion/camera/timing, the new keyframes drive identity.
-# (English framing follows the deployment's verified action-replacement prompts; faces in <Video 1> are blurred.)
-REF_VIDEO_PROMPT = """{pictures}
-<Video 1> is ONLY the motion reference: copy its camera framing, camera movement, scene layout, every person's position, body motion, head turns, gestures, mouth timing and rhythm, moment by moment. The faces in <Video 1> are blurred on purpose; never reconstruct or copy the original actors' faces or identities.
-{replace}
-<Audio 1> is the synchronized voice track of <Video 1>{speech}. No text, subtitles, logo, or watermark.
-以下是这一镜的表演说明（以参考图里的新角色来演）：
-{base}"""
-
-# Clips that follow the original shot (Ref2VA) can let the original people "grow back" mid-clip: faces are blurred
-# in the reference, but clothes, hair and build are still copied. The new first frame is the ground truth.
-CLIP_LEAK_PROMPT = """图1 是复刻短剧这一镜已经审过的新首帧（正确的样子），图2、图3 是生成视频的中间帧。
-这一镜要换掉的角色：{who}。
-请检查图2、图3 里的人是否都还是图1 那批角色（长相、服装、物种和画风一致）。重点看：有没有人变回了另一种样子，
-例如图1 是神仙妖怪/古装，图2 却出现了穿现代便装、西装的普通人；或者新角色的脸、发型变回了别人。
-镜头运动导致人物大小、角度、远近变化，以及运动模糊，都是正常的，不算问题。
-只输出 JSON：{{"leak": true 或 false, "problems": "有问题时写清楚哪一帧、画面哪个位置的谁变成了什么样"}}"""
-
 
 SUBS_PROOFREAD_PROMPT = """下面是用 OCR 从一部短剧画面里识别出的字幕，按时间顺序编号。OCR 常把形近字认错，
 例如 首→百、自→目、丢→去、糟→禮、帅→师、吧→叫。剧情：{summary}
@@ -153,15 +86,8 @@ SUBS_PROOFREAD_PROMPT = """下面是用 OCR 从一部短剧画面里识别出的
 {lines}"""
 
 # Restyled remakes: the shot's action text names the original things; rewrite it for the new keyframes.
-RESTYLE_MOTION_PROMPT = """图1 是改编后这一镜的首帧（如有图2，是尾帧）。原片这一镜的动作描述是：
-{motion}
-改编把场景、道具、主体按这个对应关系换掉了（只是总表，这一镜里不一定都有）：{style}
-请把动作描述改写成改编后的版本：动作、手势、运镜、节奏、先后顺序完全不变；把描述里提到的原片物件、场景、角色换成图里对应的新东西；
-只写这一镜画面里有的东西，不要提别的镜头的场景，也不要再出现任何原片的物件名。
-只输出 JSON：{{"motion": "改写后的动作描述"}}"""
 
-# Who says each line. Shot-level analysis sees only stills and allows one speaker per shot: back-and-forth dialogue
-# and off-screen voices then move the wrong mouth. The whole script gives the context to tell who is talking.
+
 LINE_SPEAKER_PROMPT = """这是一部短剧的完整台词，按时间顺序，每行：序号|镜头|时间|该镜头画面里能看到的角色(id:可见程度)|台词。
 剧情：{summary}
 角色：
@@ -185,6 +111,8 @@ LINE_SPEAKER_PROMPT = """这是一部短剧的完整台词，按时间顺序，�
 
 # One person split into two ids (disguise, costume change, cross-dressing): the remake would give them two looks.
 # Asked about the whole cast at once the model explains clues away; asked about one suspect pair it weighs them.
+
+
 IDENTITY_PROMPT = """核对一部短剧的角色表：{a} 和 {b} 会不会其实是同一个人（换装、乔装、女扮男装/男扮女装、戴假发后被当成了新角色）？
 剧情：{summary}
 - {a}：{a_info}
@@ -199,22 +127,7 @@ IDENTITY_PROMPT = """核对一部短剧的角色表：{a} 和 {b} 会不会其�
 只输出 JSON：{{"analysis": "...", "same": true 或 false, "reason": "一句话依据"}}"""
 
 # Every generated clip, any mode: identity, human leaks and whose mouth moves, frame by frame.
-CLIP_CHECK_PROMPT = """这些图按时间顺序取自生成视频的同一个镜头（时长 {duration:.1f}s，第一张是已审过的新首帧，代表正确的样子）。
-这一镜的角色应该是：{who}
-这一镜的台词（相对镜头开头的时间、说话人）：{lines}
-检查，只输出 JSON：
-1. identity：有没有角色中途变了样（物种、品种、长相、服装变成另一个人），或者出现了原片的人（人脸、人手、人腿）{nonhuman}？
-2. mouth：在每句台词的时间里，说话人的嘴在动吗？说话人在画外或背对镜头时，画面里其他角色的嘴应该闭着；
-   标着"内心独白"或"旁白"的台词，画面里所有人（包括这句的说话人）的嘴都应该闭着；
-   有没有"A 的台词却是 B 的嘴在动"或该说话的人没张嘴？没有台词就不用查。
-3. gaze：原片里的朝向和视线是：{gaze}。生成的画面里谁的脸转错了方向、看错了人？没有要求就不用查。
-运镜造成的大小、角度变化和运动模糊是正常的，不算问题。
-{{"identity_ok": true 或 false, "identity": "具体哪张图谁变成了什么，没有就空",
-  "mouth_ok": true 或 false, "mouth": "具体说明，没有就空",
-  "gaze_ok": true 或 false, "gaze": "具体说明，没有就空"}}"""
 
-
-# ---- deep breakdown (breakdown.py): what a remake must keep, worked out before any remake work ----
 
 SCENES_PROMPT = """你在给一部短剧/漫剧做深度拆解（复刻之前的"读剧本"）。图是分镜联系表：每格是一个镜头的中间帧，左上角是镜头编号。
 剧情：{summary}
@@ -241,6 +154,7 @@ SCENES_PROMPT = """你在给一部短剧/漫剧做深度拆解（复刻之前的
 {{"style_bible": {{"kind": "", "rendering": "", "palette": "", "lighting": "", "character_design": "", "fx": []}},
   "scenes": [{{"id": "S1", "shots": [1, 8], "location": "", "time": "", "day": "D1", "flashback": false, "present": ["groom"]}}]}}"""
 
+
 SCENE_LOOKS_PROMPT = """这是一部短剧第 {sid} 场（镜头 {a}–{b}，{location}，{time}）的几张画面：{pics}。
 这一场的角色（括号里是角色表的外貌，只供参考，以画面为准）：
 {cast}
@@ -259,6 +173,7 @@ SCENE_LOOKS_PROMPT = """这是一部短剧第 {sid} 场（镜头 {a}–{b}，{lo
 画面里看不到的角色不写。
 只返回 JSON：{{"looks": {{"角色id": {{"wear": "", "hair": "", "face": "", "props": ""}}}},
   "changes": [{{"shot": 镜号, "who": "角色id", "wear": "", "hair": "", "face": "", "props": ""}}]}}"""
+
 
 BEATS_PROMPT = """你是短剧/漫剧的编剧兼剪辑指导，在给一集剧做"看点拆解"：之后会换角色、换画风复刻，你要指出哪些东西丢了观众就不买账。
 剧情：{summary}
@@ -288,6 +203,8 @@ BEATS_PROMPT = """你是短剧/漫剧的编剧兼剪辑指导，在给一集剧�
 
 
 # Text in the picture that is not a subtitle line (breakdown.screen_text): OCR finds it, this says what it is.
+
+
 SCREEN_TEXT_PROMPT = """图是短剧第 {index} 镜的画面。OCR 在画面里（字幕之外）读到这些文字，序号|文字|大概位置：
 {texts}
 判断每段文字是什么：
@@ -301,16 +218,8 @@ OCR 认错的乱码、看不出是字的纹理写 noise。
 
 
 # Compliance: AI dramas get rejected when a face resembles a real star (or drifts into one during production).
-ORIGINAL_FACE_NOTE = "\n脸必须是原创的：不要像任何真实存在的明星、演员、网红或公众人物。"
-
-LIKENESS_PROMPT = """这是一部 AI 短剧里一个原创角色的设定图（角色：{name}）。平台审核会拒绝"长得像真实明星/公众人物"的角色。
-只判断风险，不需要也不要说出像谁：这张脸是不是一眼就会让很多观众联想到某位真实存在的知名人物（脸型、五官组合、标志性发型妆容都很接近）？
-大众脸、常见的帅哥美女长相不算；只有"明显像某个具体的人"才算。
-只输出 JSON：{{"risk": true 或 false, "reason": "一句话：哪些特征让人联想到真人（不写名字），没有风险就空"}}"""
 
 
-# Staging of one shot (breakdown.staging): camera angle, where faces point and who looks at whom.
-# Shot analysis gives positions only; a regenerated clip turns heads and flattens a low-angle hero shot.
 STAGING_PROMPT = """图是短剧第 {index} 镜的画面（{size}）。画面里的角色：{people}
 回答，只输出 JSON：
 - angle：机位角度 eye（平视）| high（俯拍，显得弱小被压制）| low（仰拍，显得强势高大）| dutch（斜角）| pov（某个角色的主观视角）| ots（过肩，前景是某人的肩背）
@@ -327,6 +236,8 @@ STAGING_PROMPT = """图是短剧第 {index} 镜的画面（{size}）。画面里
 
 # An episode's expressions per main character (breakdown.expressions): the remake can draw an expression sheet,
 # the most common comic-drama failure being a face that turns into someone else when the mood changes.
+
+
 EXPRESSIONS_PROMPT = """下面是一集短剧里每个主要角色逐镜的表情（镜号:表情）：
 {rows}
 把每个角色的表情归并成 3 到 8 种（意思相近的合成一种，比如"冷笑""嘴角上扬的嘲讽"合成"冷笑"），每种给：
@@ -335,6 +246,8 @@ name（两到四个字）、look（脸上具体什么样：眉、眼、嘴，一
 
 # A physical contact (slap, splash, push, grab, hug, hand-over) and when it happens: the original mix has the hit,
 # the regenerated action must land on it. Frames are numbered with their time in the shot.
+
+
 CONTACT_PROMPT = """这些图按时间顺序取自短剧第 {index} 镜（时长 {duration:.2f}s），每张图的时间（相对镜头开头）依次是：{times}。
 这一镜的动作描述：{actions}
 这一镜里有没有身体接触或道具碰到人/物的瞬间（扇巴掌、泼水泼酒、推搡、抓手腕、拥抱、亲吻、递交东西、拍桌、摔东西、关门、碰杯）？
@@ -344,10 +257,74 @@ t（接触发生的时间，秒，相对镜头开头：取刚好接触的那两�
 
 
 # Expression sheet of a swapped character (remake.expression_sheet, opt-in): the episode's moods on one face.
-EXPRESSION_SHEET_PROMPT = """角色表情设定图（expression sheet），{style}。图1 是角色「{name}」的设定图。
-画同一个角色的 {n} 个头像（胸口以上、正面或 3/4 侧面），排成整齐的网格，纯浅灰背景，每格下方用小字标表情名：
-{items}
-要求：每一格都是图1 里同一个人：脸型、五官比例、发型、发色、肤色、服装领口完全一样，只有表情不同；表情清楚到位，不夸张变形。"""
 
-EXPRESSION_REF_HINT = ("\n- 图{n} 是「{name}」的表情设定图：这一帧 {name} 的表情是「{expr}」，照表情图里这一格的眉眼和嘴来画；"
-                       "脸型五官仍然照设定图，不要因为表情变成另一个人。")
+
+REPORT_PROMPT = """你是短剧爆款拆解师，给编剧和制片写一份"这一集为什么好看、套路是什么、怎么拿来用"的拆解。
+类型：{format}（判断依据：{format_why}）。这类剧要重点看：
+{lens}
+
+剧情：{summary}
+角色（id|身份|重要度|出镜秒数|台词字数）：
+{cast}
+分场：
+{scenes}
+戏剧节拍（类型|开始秒|镜号|发生了什么）：
+{beats}
+逐镜（编号|开始秒|时长|作用|优先级|剧情功能|台词(说话人)）：
+{table}
+代码量出来的数据：
+{metrics}
+
+要求：每个判断都落到具体的镜号、秒数或台词上，不写放之四海皆准的空话；数据已经算好的不要重算，用来下判断。
+只返回 JSON：
+{{
+  "logline": "一句话卖点（谁、遇到什么、爽在哪），30 字内",
+  "tags": {{"themes": ["题材，如 霸总、重生、替身、赘婿、萌宝、仙侠、悬疑、甜宠、家庭伦理"], "audience": "女频|男频|全年龄|下沉中老年 等",
+           "pleasure": ["爽感类型，如 打脸、逆袭、身份揭露、虐后甜、反差萌、复仇"]}},
+  "hook": "开头 3 秒和前 10 秒怎么抓住人：具体到镜号和台词，以及它让观众问了一个什么问题",
+  "structure": [{{"part": "这一段的名字（如 钩子/铺垫/第一次冲突/反转/高潮/结尾钩子）", "shots": [起始镜号, 结束镜号], "what": "这一段做成了什么"}}],
+  "tropes": [{{"name": "套路名（如 当众羞辱→身份揭露→跪舔）", "shots": [镜号], "how": "这一集是怎么用的、和常规用法有什么不同"}}],
+  "characters": [{{"id": "角色 id", "persona": "人设标签（4-10 字）", "function": "在这一集里的戏剧作用", "memorable": "让人记住的一个具体点（造型/口头禅/动作）"}}],
+  "relations": [{{"a": "角色 id", "b": "角色 id", "relation": "关系", "tension": "两人之间的张力来自哪里"}}],
+  "why_it_works": ["为什么能留住人，3-5 条，每条带证据（镜号/秒数）"],
+  "weaknesses": ["短板或掉人的风险点，1-3 条，带证据"],
+  "formula": [{{"step": "可复用模板的一步", "share": 0.1, "what": "这一步要做到什么（不写这一集的具体人名）"}}],
+  "remix": ["拿这个模板做新剧/换皮的 2-4 个方向，每条一句话"]
+}}
+formula 的 share 是这一步占全集时长的比例，加起来约等于 1。"""
+
+
+SERIES_CAST_PROMPT = """一部短剧有好几集，每集是分开拆解的，所以同一个角色在不同集里可能用了不同的 id。请把同一个人合并起来。
+图是角色头像表：每格左上角的标签就是下面列表里的「标签」。
+角色列表（标签|身份|重要度|出镜镜头数|外貌|名字线索）：
+{rows}
+
+判断依据：脸和标志性造型、名字（人名卡、台词里被叫的名字、身份）、剧情位置（同一个"男主"在每集都在）。
+换了衣服、换了发型仍是同一个人；只是身份相同的不同路人（"服务员"）不要合并。群众（crowd）不用管。
+只返回 JSON：{{"characters": [{{"id": "整部剧用的英文小写 id", "name": "中文名或称呼", "role": "身份", "members": ["标签", "标签"]}}]}}
+每个标签只能出现在一个角色里；没有和别人合并的标签也要单独列出来。"""
+
+
+SERIES_PROMPT = """你是短剧总编剧，给一整部剧做跨集拆解，读者是要复用这套打法的编剧和制片。
+剧名：{title}，共 {n} 集，类型：{format}。
+整部剧的角色（id|名字|身份|出现在哪几集|总出镜秒数）：
+{cast}
+逐集（集号|时长|剧情|开头钩子|结尾钩子|节拍序列）：
+{episodes}
+代码量出来的逐集数据（集号|时长|镜头数|爽点数|第一个爽点在几秒|有无结尾钩子）：
+{metrics}
+
+要求：每个判断都要落到具体集号和事件上。
+只返回 JSON：
+{{
+  "logline": "整部剧一句话卖点",
+  "main_conflict": "贯穿全剧的主冲突",
+  "arcs": [{{"id": "角色 id", "arc": "这个人从哪里走到哪里", "turns": [{{"ep": 集号, "what": "转折"}}]}}],
+  "threads": [{{"what": "伏笔/悬念/秘密", "planted": 埋下的集号, "paid": 回收的集号或 null, "note": "怎么埋、怎么收"}}],
+  "links": [{{"ep": 集号, "end_hook": "这一集结尾留的钩子", "picked_up": "下一集开头怎么接的；没接写'没接'"}}],
+  "paywall": [{{"ep": 集号, "why": "适合做付费卡点的理由（钩子强度、悬念）"}}],
+  "pacing": ["跨集节奏的判断：哪几集拖、哪几集密、爽点分布是否均匀，2-4 条"],
+  "formula": [{{"stage": "阶段（如 第1-3集）", "what": "这一阶段的打法"}}],
+  "tropes": ["全剧反复使用的套路"],
+  "remix": ["复用这套打法的 2-4 个方向"]
+}}"""

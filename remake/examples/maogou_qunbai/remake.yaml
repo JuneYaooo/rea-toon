@@ -4,10 +4,10 @@
 # 猫狗是"拟人"演法：写实的毛发和动物脸，但像人一样坐椅子、拿菜单、穿原角色的衣服，动作跟原片一致。
 # 场景和道具（湖景餐厅、客厅、卧室、菜单、账单、红酒）不变。
 # 用法：
-#   rea-toon plan work/qunbai examples/maogou_qunbai/remake.yaml
-#   rea-toon run  work/qunbai examples/maogou_qunbai/remake.yaml --until frames   # 先审关键帧
-#   rea-toon run  work/qunbai examples/maogou_qunbai/remake.yaml --pilot          # 试跑 3 镜
-#   rea-toon run  work/qunbai examples/maogou_qunbai/remake.yaml                  # 出全片
+#   rea-toon-remake plan work/qunbai remake/examples/maogou_qunbai/remake.yaml
+#   rea-toon-remake run  work/qunbai remake/examples/maogou_qunbai/remake.yaml --until frames   # 先审关键帧
+#   rea-toon-remake run  work/qunbai remake/examples/maogou_qunbai/remake.yaml --pilot          # 试跑 3 镜
+#   rea-toon-remake run  work/qunbai remake/examples/maogou_qunbai/remake.yaml                  # 出全片
 name: maogou_qunbai
 style:                     # 留空 = 保持原片的写实电影感画风
 image_channel: cyber

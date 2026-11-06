@@ -4,14 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rea-toon"
-version = "0.1.0"
-description = "Remake AI short dramas: keep plot, shots and emotion; swap characters or the whole art style (gpt-image-2 + MiniMax H3 / Seedance)."
+version = "0.2.0"
+description = "Reverse-engineer any short drama (live-action, AI, manhua, motion comic, recap; one episode or a whole series) into a reviewable breakdown and a hit-formula report."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
   "requests>=2.28",
-  "PyYAML>=6.0",
   "Pillow>=9.0",
   "numpy>=1.24",
   "opencv-python-headless>=4.8",
@@ -26,6 +25,7 @@ rea-toon = "rea_toon.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["rea_toon*"]
+exclude = ["rea_toon_remake*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "remake/tests"]

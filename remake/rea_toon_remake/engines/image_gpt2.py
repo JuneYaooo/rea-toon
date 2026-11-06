@@ -18,7 +18,7 @@ from pathlib import Path
 
 import requests
 
-from ..env import need
+from rea_toon.env import need
 
 LOG = logging.getLogger(__name__)
 
