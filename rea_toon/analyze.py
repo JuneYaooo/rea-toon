@@ -6,6 +6,9 @@
 4. VLM cast pass over contact sheets: who is who across shots
 5. VLM shot pass: per shot characters, emotion, camera, motion prompt
 6. VLM performance pass: time-coded face / mouth / body beats for shots with main characters
+7. story-level passes: who says each line, one id per person across disguises
+
+The deep breakdown (scenes and looks, beats, risks, lint) is breakdown.py; the remake only reads the locked result.
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ from PIL import Image, ImageDraw, ImageFont
 from . import subtitles as subs_mod
 from .engines.vlm import VLM
 from .media import aspect_of, font_path, frame_at, probe
-from .prompts import CAST_PROMPT, PERFORMANCE_PROMPT, SHOT_PROMPT, SUBS_PROOFREAD_PROMPT
+from .prompts import CAST_PROMPT, IDENTITY_PROMPT, LINE_SPEAKER_PROMPT, PERFORMANCE_PROMPT, SHOT_PROMPT, SUBS_PROOFREAD_PROMPT
 
 LOG = logging.getLogger(__name__)
 
@@ -125,6 +128,172 @@ def proofread_story(work: Path, vlm: VLM | None = None) -> int:
     return n
 
 
+def _visible(s: dict) -> str:
+    return ";".join(f"{c.get('id')}:{c.get('visibility', '')}" for c in (s.get("analysis") or {}).get("characters") or []) or "无人"
+
+
+def attribute_lines(story: dict, vlm: VLM) -> int:
+    """Who says each subtitle line, from the whole script (shot analysis only sees stills and allows one speaker
+    per shot). Writes speaker / on_screen into every shot's subtitles; returns how many lines got a speaker."""
+    mark_cards(story)
+    rows, refs = [], []
+    for s in story["shots"]:
+        for x in s.get("subtitles") or []:
+            if x.get("card"):
+                continue
+            rows.append(f"{len(rows)}|镜{s['index']}|{x['start']:.1f}s|{_visible(s)}|{x['text']}")
+            refs.append(x)
+    if not rows:
+        return 0
+    cast = "\n".join(f"- {c['id']}：{c.get('role')}，{str(c.get('appearance', ''))[:80]}" for c in story["characters"])
+    res = vlm.ask_json(LINE_SPEAKER_PROMPT.format(summary=story.get("summary", ""), cast=cast, lines="\n".join(rows)),
+                       [], max_tokens=16000, timeout=300)
+    ids = {c["id"] for c in story["characters"]} | {"title"}
+    n = 0
+    for r in res.get("lines") or []:
+        i = r.get("i")
+        if isinstance(i, int) and 0 <= i < len(refs) and r.get("speaker") in ids:
+            mode = r.get("mode") if r.get("mode") in subs_mod.MODES else ("on" if r.get("on_screen") else "off")
+            # on_screen stays the switch every later stage reads: only a mouth that really talks on camera moves
+            refs[i].update(speaker=r["speaker"], mode=mode, on_screen=mode == "on")
+            n += 1
+    return n
+
+
+def _rename(story: dict, old: str, new: str) -> None:
+    for s in story["shots"]:
+        a = s.get("analysis") or {}
+        for c in a.get("characters") or []:
+            if c.get("id") == old:
+                c["id"] = new
+        for k in ("in_first", "in_last"):
+            if isinstance(a.get(k), list):
+                a[k] = list(dict.fromkeys(new if x == old else x for x in a[k]))
+        if a.get("speaker") == old:
+            a["speaker"] = new
+        for b in (s.get("performance") or {}).get("beats") or []:
+            if b.get("who") == old:
+                b["who"] = new
+        for x in s.get("subtitles") or []:
+            if x.get("speaker") == old:
+                x["speaker"] = new
+
+
+def mark_cards(story: dict) -> int:
+    """Name cards / titles drawn far bigger than the dialogue (e.g. a character's name as she walks in) are not
+    lines: nobody says them, so no mouth may move on them, and they say who that person is."""
+    import statistics
+    subs = [x for s in story["shots"] for x in s.get("subtitles") or [] if x.get("box") and x["text"].strip()]
+    if len(subs) < 5:
+        return 0
+    cw = lambda x: (x["box"][2] - x["box"][0]) / max(1, len(x["text"].strip()))  # width per character
+    tall = lambda x: x["box"][3] - x["box"][1]
+    mw, mh = statistics.median(map(cw, subs)), statistics.median(map(tall, subs))
+    n = 0
+    for x in subs:
+        if cw(x) > 1.8 * mw and tall(x) > 1.8 * mh:
+            x["card"], x["speaker"], x["on_screen"] = True, "title", False
+            n += 1
+    return n
+
+
+def _names(c: dict) -> set[str]:
+    """Names a character goes by: the id and anything in brackets of the role, e.g. 姐姐（温月） -> 温月."""
+    import re
+    return {c["id"], *re.findall(r"[（(]([^）)]+)[）)]", str(c.get("role", "")))} - {""}
+
+
+def identity_pairs(story: dict, chars: list[dict]) -> dict[tuple[str, str], list[str]]:
+    """Suspect pairs with the hard facts behind them: a name shown while its owner is 'absent' (the person on screen
+    may be the owner in disguise), and pairs that (almost) never share a shot."""
+    shots_of = {c["id"]: set(c.get("shots", [])) for c in chars}
+    pairs: dict[tuple[str, str], list[str]] = {}
+    for s in story["shots"]:
+        here = {x.get("id") for x in (s.get("analysis") or {}).get("characters") or []} & set(shots_of)
+        for x in s.get("subtitles") or []:
+            for c in chars:
+                if x["text"].strip() in _names(c) and c["id"] not in here:
+                    kind = ("大字人名卡（字号是台词的好几倍，是给刚出场的角色打的名字，不是谁喊出来的台词）"
+                            if x.get("card") else "字幕")
+                    for o in here:
+                        if len(shots_of[o] & shots_of[c["id"]]) <= 1:
+                            pairs.setdefault((c["id"], o), []).append(
+                                f"镜{s['index']} 画面上出现{kind}「{x['text'].strip()}」，这是 {c['id']} 的名字，"
+                                f"但这一镜里没有标出 {c['id']}，画面里的是 {'、'.join(sorted(here))}")
+    ids = sorted(shots_of)
+    for i, a in enumerate(ids):
+        for b in ids[i + 1:]:
+            both = shots_of[a] & shots_of[b]
+            # a shared transition shot is allowed; tiny parts (1-2 shots) are not suspects on this ground alone
+            if len(shots_of[a]) >= 3 and len(shots_of[b]) >= 3 and len(both) <= 1:
+                key = (a, b) if (a, b) in pairs or (b, a) not in pairs else (b, a)
+                pairs.setdefault(key, []).append(f"{a} 和 {b} 几乎没有同时出现过（同框镜头：{sorted(both) or '无'}）")
+    return pairs
+
+
+def _portraits(story: dict, work: Path, cid: str, k: int = 2) -> list[Path]:
+    """The clearest shots of one character: face visible, closest framing first."""
+    order = ("特写", "近景", "中景")
+    best = [s for s in story["shots"] if any(x.get("id") == cid and x.get("visibility") in ("face", "profile")
+                                             for x in (s.get("analysis") or {}).get("characters") or [])]
+    best.sort(key=lambda s: next((i for i, w in enumerate(order) if w in str((s.get("analysis") or {}).get("shot_size", ""))), 9))
+    return [work / s["frames"]["mid"] for s in best[:k]]
+
+
+def merge_identities(story: dict, work: Path, vlm: VLM) -> list[dict]:
+    """One person split into two ids (disguise, costume change): merge them, keeping the other look as an outfit
+    of the same character for its shots. Otherwise the remake gives one person two different looks."""
+    chars = [c for c in story["characters"] if c.get("importance") != "extra" and "crowd" not in c["id"]]
+    by_id = {c["id"]: c for c in story["characters"]}
+    done = []
+    for (a, b), clues in identity_pairs(story, chars).items():
+        if a not in by_id or b not in by_id:
+            continue
+        pa, pb = _portraits(story, work, a), _portraits(story, work, b)
+        if not pa or not pb:
+            continue
+        near = set(by_id[a].get("shots", [])) | set(by_id[b].get("shots", []))
+        lines = "\n".join(f"镜{s['index']} {'【人名字卡】' if x.get('card') else x.get('speaker', '?') + '：'}{x['text']}"
+                          for s in story["shots"] if s["index"] in near for x in s.get("subtitles") or [])
+        info = lambda c: f"{c.get('role')}；{c.get('appearance')}；出现在镜头 {c.get('shots')}"
+        nums = lambda lo, n: "、".join(str(lo + i) for i in range(n))
+        try:
+            r = vlm.ask_json(IDENTITY_PROMPT.format(a=a, b=b, a_info=info(by_id[a]), b_info=info(by_id[b]),
+                                                    a_pics=nums(1, len(pa)), b_pics=nums(1 + len(pa), len(pb)),
+                                                    summary=story.get("summary", ""), clues="\n".join(f"- {c}" for c in clues),
+                                                    lines=lines), pa + pb, max_tokens=4096, timeout=300)
+        except Exception as exc:  # a safety net, never a blocker
+            LOG.warning("角色合并检查 %s/%s 失败：%s", a, b, exc)
+            continue
+        if not r.get("same"):
+            continue
+        # keep the one that is introduced first / has more shots; the other becomes one of its outfits
+        keep, drop = sorted((by_id[a], by_id[b]), key=lambda c: (min(c.get("shots") or [999]), -len(c.get("shots", []))))
+        LOG.info("角色合并：%s 就是 %s（%s）", drop["id"], keep["id"], r.get("reason", ""))
+        keep.setdefault("outfits", []).append({"shots": drop.get("shots", []), "appearance": drop.get("appearance", ""),
+                                               "role": drop.get("role", ""), "was": drop["id"]})
+        keep["shots"] = sorted(set(keep.get("shots", [])) | set(drop.get("shots", [])))
+        _rename(story, drop["id"], keep["id"])
+        story["characters"].remove(drop)
+        by_id.pop(drop["id"])
+        done.append({"keep": keep["id"], "drop": drop["id"], "reason": r.get("reason", "")})
+    return done
+
+
+def refine(work: Path, vlm: VLM | None = None) -> dict:
+    """Story-level passes over an analysed work dir: who says each line, and one person split into two ids.
+    analyze runs them; this re-runs them on an older story.json without re-analysing the shots."""
+    vlm = vlm or VLM(cache_dir=work / "analysis" / "vlm_cache")
+    story_path = work / "story.json"
+    story = json.loads(story_path.read_text(encoding="utf-8"))
+    n = attribute_lines(story, vlm)
+    merges = merge_identities(story, work, vlm)
+    story.setdefault("refined", {}).update(merges=story.get("refined", {}).get("merges", []) + merges, lines=n)
+    story_path.write_text(json.dumps(story, ensure_ascii=False, indent=1), encoding="utf-8")
+    write_cast_sheet(story, work)
+    return {"merges": merges, "lines": n}
+
+
 def analyze(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[float] | None = None) -> dict:
     src = work / "source.mp4"
     info = probe(src)
@@ -203,6 +372,10 @@ def analyze(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[float
         with ThreadPoolExecutor(workers) as ex:
             for s, res in zip(acting, ex.map(lambda s: performance(work, story, s, vlm), acting)):
                 s["performance"] = res
+        # story-level passes: one speaker per line (not per shot), one id per person across costume changes
+        # (speakers first: the merge pass reads them; it renames the merged id inside them too)
+        n = attribute_lines(story, vlm)
+        story["refined"] = {"lines": n, "merges": merge_identities(story, work, vlm)}
     (work / "story.json").write_text(json.dumps(story, ensure_ascii=False, indent=1), encoding="utf-8")
     write_cast_sheet(story, work)
     return story

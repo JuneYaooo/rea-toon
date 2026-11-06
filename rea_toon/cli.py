@@ -33,6 +33,9 @@ def cmd_analyze(a):
     print(f"{len(story['shots'])} 镜，{len(story['characters'])} 个角色 → {w / 'story.md'}")
     for c in story["characters"]:
         print(f"  {c['id']:<18} {c.get('role', ''):<8} {c.get('importance', ''):<10} 镜头 {c.get('shots')}")
+    if not a.no_vlm:
+        from .breakdown import breakdown
+        _review_summary(breakdown(w, workers=a.workers), w)
 
 
 def cmd_init(a):
@@ -44,7 +47,7 @@ def cmd_init(a):
              "frames: first_last        # first_last = 首尾帧约束（更贴原镜头）| first = 只用首帧",
              "lipsync: true             # H3：被换角色的对白镜头用原人声驱动口型", "subtitles: reburn",
              "shots: all                # 只复刻这些镜头，其余用原片；例 \"1,28-30\"",
-             "workers: 1                # 单卡自部署 H3 用 1；托管 API 可 4", "",
+             "workers: 3                # 同时在跑的镜头数：单卡 H3 用 3（在 GPU 上排队，GPU 不空转）；托管 API 可 4", "",
              "# 下面列出了全部角色（含群众 crowd）。要换的取消注释并填写；没换的会保持原片的样子，`plan` 会列出来。",
              "# “换成某某 IP 的全员”时，配角和群众也要写，否则成片里会站满原片的人。", "cast:"]
     for c in story["characters"]:
@@ -80,15 +83,24 @@ def cmd_plan(a):
     p = r.plan()
     only = _only(a, r)
     print(f"重做 {p['regen_shots']} 镜 / 复用原片 {p['reuse_shots']} 镜；图片调用 ≈{p['image_calls']}，"
-          f"视频 {p['video_calls']} 段（原片时长 {p['video_seconds']}s）")
+          f"视频 {p['video_calls']} 段（原片时长 {p['video_seconds']}s）"
+          + (f"；静图推拉 {p['kenburns_shots']} 镜（本地渲染，不调视频模型）" if p.get("kenburns_shots") else ""))
     for s in p["shots"]:
         if s["route"] == "regen" and (not only or s["index"] in only):
-            print(f"  #{s['index']:<3} 换 {','.join(s['swapped']) or '-':<14} 帧 {s['frames']}  模式 {s['mode']}")
+            ref = f"  同场参考 #{s['scene_ref']['shot']}" if s.get("scene_ref") else ""
+            print(f"  #{s['index']:<3} 换 {','.join(s['swapped']) or '-':<14} 帧 {s['frames']}  模式 {s['mode']}{ref}")
     if p["kept_roles"]:
         print("保持原片样子的角色（确认这是用户要的；要换就写进 cast）：")
         for k in p["kept_roles"]:
             print(f"  {k['id']:<18} {k['role']:<8} {k['importance']:<10} 镜头 {k['shots']}")
+    for v in p.get("voice_mismatch") or []:
+        print(f"声线可能对不上：{v['id']} → {v['name']}（{v['why']}）。成片用的是原声，确认可以接受，或者改 look")
     print(f"试跑镜头（run --pilot）：{p['pilot']}")
+    from .breakdown import lock_state
+    state = lock_state(r.story)
+    if state != "locked":
+        print(f"注意：剧本拆解{'还没锁定' if state == 'unlocked' else '锁定后又改过'}，run 会拒绝执行："
+              f"先审 {r.work / 'breakdown.html'}，再 rea-toon lock {r.work}")
     print(f"→ {r.out / 'plan.json'}")
 
 
@@ -116,7 +128,8 @@ def cmd_run(a):
     res = r.run(until="clips" if a.pilot else a.until, force=force, only=only)
     failed = sorted(i for i, v in res.get("results", {}).items() if v.get("error"))
     if (a.pilot or a.until == "clips") and not a.no_assemble:
-        out = assemble(r.work, r.out, res["plan"]["shots"], reburn=r.spec.subtitles == "reburn")
+        out = assemble(r.work, r.out, res["plan"]["shots"], reburn=r.spec.subtitles == "reburn",
+                       label=r.spec.aigc_label)
         print(json.dumps({k: out[k] for k in ("final", "compare", "missing") if k in out}, ensure_ascii=False, indent=1))
         _check(r, only=only if a.pilot or a.shots or a.redo else None)
     if failed:
@@ -126,7 +139,8 @@ def cmd_run(a):
 def cmd_assemble(a):
     from .assemble import assemble
     r = _remake(a)
-    print(json.dumps(assemble(r.work, r.out, r.plan()["shots"], reburn=r.spec.subtitles == "reburn"), ensure_ascii=False, indent=1))
+    print(json.dumps(assemble(r.work, r.out, r.plan()["shots"], reburn=r.spec.subtitles == "reburn",
+                                label=r.spec.aigc_label), ensure_ascii=False, indent=1))
 
 
 def cmd_check(a):
@@ -137,6 +151,41 @@ def cmd_check(a):
 def cmd_proofread(a):
     from .analyze import proofread_story
     print(f"改了 {proofread_story(Path(a.work))} 条字幕（原 OCR 文本留在 ocr 字段）")
+
+
+def cmd_breakdown(a):
+    from .breakdown import breakdown
+    w = _work(a.work)
+    story = breakdown(w, workers=a.workers)
+    _review_summary(story, w)
+
+
+def _review_summary(story: dict, w: Path) -> None:
+    bd = story.get("breakdown") or {}
+    must = [s["index"] for s in story["shots"] if (s.get("key") or {}).get("priority") == "must"]
+    print(f"{len(bd.get('scenes') or [])} 场，{len(bd.get('beats') or [])} 个戏剧节拍，必保镜头 {must}")
+    errors = [x for x in story.get("lint") or [] if x["level"] == "error"]
+    warns = [x for x in story.get("lint") or [] if x["level"] != "error"]
+    for x in errors + warns:
+        print(f"  {'✗' if x['level'] == 'error' else '!'} {'镜' + str(x['shot']) + '：' if x['shot'] else ''}{x['msg']}")
+    print(f"审核：{w / 'breakdown.html'}（同内容 {w / 'breakdown.md'}）；改好后 rea-toon lock {w}")
+
+
+def cmd_lock(a):
+    from .breakdown import lock
+    lk = lock(_work(a.work), force=a.force)
+    print(f"已锁定 {lk['hash']}（{lk['at']}）{'，带着未修的问题' if lk['forced'] else ''}：可以 plan / run 了")
+
+
+def cmd_refine(a):
+    from .analyze import refine
+    r = refine(Path(a.work))
+    print(f"{r['lines']} 句台词标了说话人")
+    for m in r["merges"]:
+        print(f"  合并角色：{m['drop']} → {m['keep']}（{m.get('reason', '')}）")
+    if r["merges"]:
+        print("  remake.yaml 里被合并掉的角色 id 要删掉（它现在是同一个角色的另一套衣服）")
+    print(f"台词和角色变了：重跑 rea-toon breakdown {a.work}，审完再 lock")
 
 
 def main(argv=None):
@@ -157,6 +206,17 @@ def main(argv=None):
     p = sub.add_parser("proofread", help="校对 OCR 字幕的形近错字（analyze 会自动做；给旧的工作目录补做）")
     p.add_argument("work"); p.set_defaults(fn=cmd_proofread)
 
+    p = sub.add_parser("refine", help="逐句标说话人、合并被拆成两个的同一角色（换装/乔装）；analyze 会自动做，给旧的工作目录补做")
+    p.add_argument("work"); p.set_defaults(fn=cmd_refine)
+
+    p = sub.add_parser("breakdown", help="深度拆解：画风档案、分场造型、戏剧节拍和看点、风险、一致性检查 → breakdown.html 待审"
+                                         "（analyze 会自动做；改过 story.json 或给旧目录补做时单独跑）")
+    p.add_argument("work"); p.add_argument("--workers", type=int, default=6); p.set_defaults(fn=cmd_breakdown)
+
+    p = sub.add_parser("lock", help="审完拆解后锁定：复刻只在锁定的拆解上运行；之后改了 story.json 要重新 lock")
+    p.add_argument("work"); p.add_argument("--force", action="store_true", help="带着未修的 error 也锁定")
+    p.set_defaults(fn=cmd_lock)
+
     p = sub.add_parser("init", help="按角色表生成 remake.yaml 模板")
     p.add_argument("work"); p.add_argument("name"); p.add_argument("--overwrite", action="store_true")
     p.set_defaults(fn=cmd_init)
@@ -175,7 +235,7 @@ def main(argv=None):
                            help="先停在设定图/关键帧审一下再出视频")
             p.add_argument("--redo", help="只重做这些镜头（配合 --force）")
             p.add_argument("--force", help="强制重做的阶段：cast,frames,clips")
-            p.add_argument("--keep", help="已有产物即使输入变了也保留（已审过的）：cast,frames")
+            p.add_argument("--keep", help="已有产物即使输入变了也保留（已审过的）：cast,frames,clips；clips 会按当前检查规则重查，不合格才重新生成")
             p.add_argument("--no-assemble", action="store_true")
             p.add_argument("--pilot", action="store_true", help="先试跑 plan 选出的 3 个代表镜头，出视频、拼片、自查")
         p.set_defaults(fn=fn)

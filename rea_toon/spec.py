@@ -18,6 +18,7 @@ class CastSwap:
     voice: str = "keep"        # keep the original voice track (only option for now)
     kind: str = "person"       # person | object (a product swap: no face, never "too small to recognise")
     original: str = ""         # kind=object only: what the object looks like in the reference (it is added to every shot)
+    fx_color: str = ""         # the colour of this role's effects (剑气、灵光) in the remake, e.g. "金色"; "" = as in the original
 
 
 @dataclass
@@ -33,10 +34,15 @@ class RemakeSpec:
     no_motion_ref: str = ""            # shots that skip the motion reference, e.g. "19,21-23" (original people leaked back in)
     anchors: dict = field(default_factory=dict)  # extra keyframes inside long ref_video shots: {shot: [seconds into shot]}
     frame_notes: dict = field(default_factory=dict)  # per-keyframe instructions: {shot: {first|last|a1..: "穿第二套"}}
+    scene_ref: bool = True             # first frames also see the scene's anchor shot (same faces / looks within a scene)
+    aigc_label: str = "AI生成"          # explicit AI-content label burned into the final cut (标识办法, 2025-09); "" = none
+    kenburns: bool = True              # still pictures held / pushed / panned in the original (动态漫画) are rendered from
+                                       # the new keyframe locally, no video model (the breakdown's per-shot `motion`)
+    expression_sheet: bool = False     # draw an expression sheet per swapped character and pass it with the keyframes
     subtitles: str = "reburn"          # reburn | none
     shots: str = "all"                 # "all" or "1-5,28,30"
     regen: str = "affected"            # affected = only shots with swapped roles (or all when style is set); all
-    workers: int = 4                   # parallel video clips (1 for a single self-hosted GPU)
+    workers: int = 4                   # shots in flight; on one self-hosted GPU 3 keeps its queue full
     frame_workers: int = 4             # parallel keyframe edits (image API)
     notes: str = ""
     path: Path | None = None

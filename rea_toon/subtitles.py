@@ -14,6 +14,19 @@ from pathlib import Path
 LOG = logging.getLogger(__name__)
 _OCR = None
 
+# How a line is spoken (per-line speakers, analyze.attribute_lines). Only "on" moves a mouth on screen:
+# an inner monologue is the character's voice with the mouth shut, even when they fill the frame.
+MODES = ("on", "off", "inner", "narration")
+MODE_CN = {"on": "", "off": "画外", "inner": "内心独白", "narration": "旁白"}
+
+
+def line_mode(x: dict) -> str:
+    """Speech mode of a subtitle line; older story.json files only carry on_screen."""
+    m = x.get("mode")
+    if m in MODES:
+        return m
+    return "on" if x.get("on_screen", True) else "off"
+
 
 def _ocr():
     global _OCR
@@ -21,6 +34,29 @@ def _ocr():
         from rapidocr_onnxruntime import RapidOCR  # type: ignore
         _OCR = RapidOCR()
     return _OCR
+
+
+def read_text(frame, min_score: float = 0.7) -> list[dict]:
+    """All text OCR finds in a picture (BGR array or image path): [{text, box: normalized [x0,y0,x1,y1]}]."""
+    import cv2
+    if not hasattr(frame, "shape"):
+        frame = cv2.imread(str(frame))
+        if frame is None:
+            return []
+    h, w = frame.shape[:2]
+    scale = min(1.0, 1280 / max(h, w))
+    img = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1.0 else frame
+    res, _ = _ocr()(img)
+    out = []
+    for box, text, score in res or []:
+        xs, ys = [q[0] / scale for q in box], [q[1] / scale for q in box]
+        if float(score) >= min_score and text.strip():
+            out.append({"text": text.strip(), "box": [min(xs) / w, min(ys) / h, max(xs) / w, max(ys) / h]})
+    return out
+
+
+def similar_text(a: str, b: str) -> float:
+    return difflib.SequenceMatcher(None, a, b).ratio()
 
 
 def _band_lines(frame, band: tuple[float, float]):

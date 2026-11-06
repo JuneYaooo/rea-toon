@@ -45,17 +45,84 @@ def _subtitle_filter(shot: dict, h: int, w: int | None = None) -> str:
     return ",".join(parts)
 
 
+def _overlay_filter(shot: dict, h: int, w: int) -> str:
+    """花字 of the original (breakdown screen_text, kind overlay): the keyframes leave it out, so a regenerated shot
+    gets it drawn back at the original place, time and colour (a plain font: the original lettering is not recovered)."""
+    font = font_path()
+    items = [t for t in shot.get("screen_text") or [] if t.get("kind") == "overlay" and t.get("box")]
+    if not font or not items:
+        return ""
+    parts = []
+    for t in items:
+        a = max(0.0, t.get("t0", shot["start"]) - shot["start"])
+        b = min(shot["duration"], t.get("t1", shot["end"]) - shot["start"])
+        if b - a < 0.1:
+            continue
+        x0, y0, x1, y1 = t["box"]
+        size = _sub_size({"height": y1 - y0, "box": t["box"], "text": t["text"]}, h, w)
+        color = str(t.get("color") or "#FFFFFF").replace("#", "0x")
+        parts.append(f"drawtext=fontfile='{font}':text='{_esc(t['text'])}':fontsize={size}:fontcolor={color}:"
+                     f"borderw={max(2, size // 8)}:bordercolor=black@0.8:x={int((x0 + x1) / 2 * w)}-text_w/2:"
+                     f"y={int(y0 * h)}:enable='between(t,{a:.3f},{b:.3f})'")
+    return ",".join(parts)
+
+
+def _freeze_filter(shot: dict, fps: float) -> str:
+    """Freeze frames of the original (breakdown): a generated clip keeps moving, so hold its picture there."""
+    parts = []
+    for t0, t1 in shot.get("freeze") or []:
+        a, b = round(t0 * fps), round(t1 * fps) - 1
+        if b > a:
+            parts.append(f"freezeframes=first={a}:last={b}:replace={a}")
+    return ",".join(parts)
+
+
+def aigc_mark(story: dict) -> dict | None:
+    """Where the original carries its AI-content label (most shots agree): the remake's label goes to the same place."""
+    from collections import Counter
+    seen = Counter()
+    boxes = {}
+    for s in story["shots"]:
+        for t in s.get("screen_text") or []:
+            if t.get("kind") == "aigc":
+                k = (round(t["box"][0], 1), round(t["box"][1], 1))
+                seen[k] += 1
+                boxes.setdefault(k, t)
+    return boxes[seen.most_common(1)[0][0]] if seen else None
+
+
+def _label_filter(text: str, h: int, w: int, mark: dict | None) -> str:
+    """The AI-content label: at the original's spot and size if it had one, else small in the top-left corner."""
+    font = font_path()
+    if not font or not text:
+        return ""
+    if mark:
+        x0, y0, x1, y1 = mark["box"]
+        size = max(14, int((y1 - y0) * h))
+        x, y = int(x0 * w), int(y0 * h)
+    else:
+        size, x, y = max(14, h // 40), max(8, w // 40), max(8, h // 40)
+    return (f"drawtext=fontfile='{font}':text='{_esc(text)}':fontsize={size}:fontcolor=white@0.85:"
+            f"borderw=1:bordercolor=black@0.5:x={x}:y={y}")
+
+
 def segment(work: Path, story: dict, shot: dict, clip: Path | None, out: Path, reburn: bool,
-            mode: str | None = None, av_lag: float | None = None) -> Path:
-    W, H, fps, dur = story["width"], story["height"], story["fps"], shot["duration"]
+            mode: str | None = None, av_lag: float | None = None, fps: float | None = None,
+            label: str = "") -> Path:
+    W, H, dur = story["width"], story["height"], shot["duration"]
+    fps = fps or story["fps"]
     # cut on the original frame grid so 36 rounded segments still add up to the source length
     n_frames = max(1, round(shot["end"] * fps) - round(shot["start"] * fps))
     norm = f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},fps={fps},setsar=1"
+    mark = aigc_mark(story) if label else None
     if clip is None:  # reuse original footage
+        # an original that already carries the label shows it in its reused shots; otherwise every shot gets ours
+        lab = _label_filter(label, H, W, None) if label and not mark else ""
         cmd = ["ffmpeg", "-v", "error", "-y", "-ss", f"{round(shot['start'] * fps) / fps:.4f}", "-i", str(work / "source.mp4"),
-               "-vf", norm]
+               "-vf", norm + ("," + lab if lab else "")]
     else:
-        clip = erase_text(clip)  # H3's own burned-in subtitles would double up with the reburned ones
+        if mode != "kenburns":  # rendered from a keyframe that has no subtitles
+            clip = erase_text(clip)  # H3's own burned-in subtitles would double up with the reburned ones
         gen = probe(clip)["duration"] or dur
         ratio = dur / gen
         # stretch to fit when close (keeps the last-frame target on the cut); otherwise keep the start
@@ -72,9 +139,15 @@ def segment(work: Path, story: dict, shot: dict, clip: Path | None, out: Path, r
         # a clip shorter than the shot (or trimmed by av_lag) holds its last frame instead of running out;
         # tpad only pads reliably after the fps filter, so it goes after norm
         vf = timing + norm + ",tpad=stop_mode=clone:stop_duration=2"
+        frz = _freeze_filter(shot, fps)
+        vf += ("," + frz) if frz else ""
+        over = _overlay_filter(shot, H, W)
+        vf += ("," + over) if over else ""
         if reburn:
             sub = _subtitle_filter(shot, H, W)
             vf += ("," + sub) if sub else ""
+        lab = _label_filter(label, H, W, mark)  # the keyframes dropped the original's label with the other marks
+        vf += ("," + lab) if lab else ""
         cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(clip), "-vf", vf]
     cmd += ["-frames:v", str(n_frames), "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", str(out)]
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -98,17 +171,28 @@ def shot_source(shot: dict, plan: dict | None, out_dir: Path) -> dict:
     return {"clip": clip, "status": "regen", "mode": meta.get("mode", plan.get("mode")), "av_lag": lag}
 
 
-def assemble(work: Path, out_dir: Path, plan: list[dict], reburn: bool = True, compare: bool = True) -> dict:
+def output_fps(story: dict, clips: list[Path]) -> float:
+    """The cut runs at the generated clips' rate when they share one (H3: 24 fps). Putting 24 fps clips on a 30 fps
+    timeline repeats every 4th frame, which reads as a steady stutter; 30 fps sources of short dramas are often
+    24p content anyway (1 repeated frame in 5)."""
+    rates = {round(probe(c).get("fps") or 0, 3) for c in clips}
+    return rates.pop() if len(rates) == 1 and 0 < min(rates | {1e9}) <= story["fps"] else story["fps"]
+
+
+def assemble(work: Path, out_dir: Path, plan: list[dict], reburn: bool = True, compare: bool = True,
+             label: str = "") -> dict:
     """plan: the full-film shot plan (Remake.plan()["shots"])."""
     story = json.loads((work / "story.json").read_text(encoding="utf-8"))
     by_index = {p["index"]: p for p in plan}
     segs, used = [], {"regen": [], "reuse": [], "missing": []}
-    for shot in story["shots"]:
-        src = shot_source(shot, by_index.get(shot["index"]), out_dir)
+    sources = [(shot, shot_source(shot, by_index.get(shot["index"]), out_dir)) for shot in story["shots"]]
+    # local push / pan renders take any rate: only the generated clips decide it
+    fps = output_fps(story, [s["clip"] for _, s in sources if s["clip"] and s.get("mode") != "kenburns"])
+    for shot, src in sources:
         used[src["status"]].append(shot["index"])
         seg = segment(work, story, shot, src["clip"], out_dir / "segments" / f"{shot['id']}.mp4", reburn,
-                      src.get("mode"), av_lag=src.get("av_lag"))
-        want = max(1, round(shot["end"] * story["fps"]) - round(shot["start"] * story["fps"]))
+                      src.get("mode"), av_lag=src.get("av_lag"), fps=fps, label=label)
+        want = max(1, round(shot["end"] * fps) - round(shot["start"] * fps))
         got = count_frames(seg)
         if got != want:  # a short segment shifts every later shot off the original voice
             raise RuntimeError(f"镜头 {shot['index']} 拼接后 {got} 帧，应为 {want} 帧")
@@ -118,9 +202,10 @@ def assemble(work: Path, out_dir: Path, plan: list[dict], reburn: bool = True, c
     silent = out_dir / "video_only.mp4"
     run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", str(silent)])
     final = out_dir / "final.mp4"
+    # the picture sets the length: pad the audio (never drop the last frames to the audio's length)
     run(["ffmpeg", "-v", "error", "-y", "-i", str(silent), "-i", str(work / "source.mp4"), "-map", "0:v", "-map", "1:a?",
-         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(final)])
-    out = {"final": str(final), **used}
+         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-af", "apad", "-shortest", str(final)])
+    out = {"final": str(final), "fps": fps, **used}
     if compare:
         cmp_path = out_dir / "compare.mp4"
         run(["ffmpeg", "-v", "error", "-y", "-i", str(work / "source.mp4"), "-i", str(final), "-filter_complex",

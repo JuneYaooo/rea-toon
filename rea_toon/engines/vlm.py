@@ -61,7 +61,7 @@ class VLM:
         b, _, m = self.endpoints[0]
         return f"{m} @ {re.sub(r'^https?://', '', b).split('/')[0]}"
 
-    def ask_json(self, prompt: str, images: list[Path], max_tokens: int = 8192):
+    def ask_json(self, prompt: str, images: list[Path], max_tokens: int = 8192, timeout: float | None = None):
         h = hashlib.sha1(prompt.encode())
         for p in images:
             h.update(hashlib.sha1(Path(p).read_bytes()).digest())
@@ -75,12 +75,14 @@ class VLM:
             content.append({"type": "image_url", "image_url": {
                 "url": f"data:{mime};base64," + base64.b64encode(Path(p).read_bytes()).decode()}})
         content.append({"type": "text", "text": prompt})
+        if not images:  # text-only: some relays reject a part list without an image
+            content = prompt
         last: Exception | None = None
         for base, api_key, model in list(self.endpoints):
             for attempt in range(2):
                 try:
                     t = time.time()
-                    r = requests.post(f"{base}/chat/completions", timeout=self.timeout,
+                    r = requests.post(f"{base}/chat/completions", timeout=timeout or self.timeout,
                                       headers={"Authorization": f"Bearer {api_key}"},
                                       json={"model": model, "max_tokens": max_tokens, "temperature": 0.2,
                                             "messages": [{"role": "user", "content": content}]})
