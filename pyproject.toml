@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rea-toon"
 version = "0.2.0"
-description = "Reverse-engineer any short drama (live-action, AI, manhua, motion comic, recap; one episode or a whole series) into a reviewable breakdown and a hit-formula report."
+description = "任何短剧，拆成剧本：真人、AI、漫剧、解说，单集或整部剧。"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
