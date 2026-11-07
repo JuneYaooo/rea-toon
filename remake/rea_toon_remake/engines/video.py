@@ -28,6 +28,21 @@ def _data_uri(p: Path) -> str:
     return f"data:{mime};base64," + base64.b64encode(p.read_bytes()).decode()
 
 
+class SubmittedError(RuntimeError):
+    """The provider accepted (and bills) the task but we lost it: timed out, no video, download failed.
+    Submitting again would pay twice, so generate() does not retry these."""
+
+
+def _download_retry(url: str, out: Path, what: str) -> None:
+    for k in range(4):
+        try:
+            return _download(url, out)
+        except requests.RequestException as exc:
+            if k == 3:
+                raise SubmittedError(f"{what} 已完成但下载失败（已计费，不重新提交）：{exc}；地址 {url}")
+            time.sleep(10 * (k + 1))
+
+
 def _download(url: str, out: Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_suffix(".part")
@@ -64,6 +79,8 @@ class VideoEngine:
                 return out
             except Exception as exc:
                 last_exc = exc
+                if isinstance(exc, SubmittedError):
+                    break  # already paid for: a resubmit pays again
                 if "余额不足" in str(exc) or "insufficient" in str(exc).lower():
                     break  # retrying cannot help
                 LOG.warning("[video:%s] %s attempt %d failed: %s", self.name, out.name, attempt, str(exc)[:300])
@@ -132,18 +149,11 @@ class H3AutoDL(VideoEngine):
                 for item in qd.get("results") or []:
                     url = item.get("url") or item.get("download_url") or ""
                     if url.split("?")[0].lower().endswith((".mp4", ".mov", ".webm")) or item.get("type") == "video":
-                        for k in range(4):
-                            try:
-                                _download(url, out)
-                                return
-                            except requests.RequestException:
-                                if k == 3:
-                                    raise
-                                time.sleep(10 * (k + 1))
-                raise RuntimeError("H3 成功但没有返回视频")
+                        return _download_retry(url, out, f"H3 任务 {task}")
+                raise SubmittedError(f"H3 任务 {task} 成功但没有返回视频")
             if status in {"FAILED", "FAILURE", "ERROR", "CANCELED", "CANCELLED", "EXPIRED"}:
                 raise RuntimeError(f"H3 任务失败 {status}: {str(qd.get('msg') or qd.get('message') or '')[:300]}")
-        raise RuntimeError("H3 任务超时")
+        raise SubmittedError(f"H3 任务 {task} 等待超时（可能还在跑，已计费，不重新提交）")
 
 
 class H3Local(VideoEngine):
@@ -362,15 +372,22 @@ class SeedanceArk(VideoEngine):
         started = time.time()
         while time.time() - started < self.max_wait:
             time.sleep(self.poll)
-            q = requests.get(f"{url}/{task}", headers=headers, timeout=60).json()
+            try:  # a network blip while polling must not abandon (and re-pay for) a submitted task
+                q = requests.get(f"{url}/{task}", headers=headers, timeout=60).json()
+            except (requests.RequestException, ValueError) as exc:
+                LOG.warning("[video:seedance] %s poll error (will retry): %s", out.name, str(exc)[:120])
+                time.sleep(10)
+                continue
             status = str(q.get("status") or "").lower()
             if status == "succeeded":
                 v = (q.get("content") or {}).get("video_url")
-                _download(v if isinstance(v, str) else v.get("url"), out)
-                return
+                v = v if isinstance(v, str) else (v or {}).get("url")
+                if not v:
+                    raise SubmittedError(f"Seedance 任务 {task} 成功但没有返回视频")
+                return _download_retry(v, out, f"Seedance 任务 {task}")
             if status in {"failed", "error", "cancelled", "canceled", "expired", "rejected"}:
                 raise RuntimeError(f"Seedance 任务失败: {str(q.get('error'))[:300]}")
-        raise RuntimeError("Seedance 任务超时")
+        raise SubmittedError(f"Seedance 任务 {task} 等待超时（可能还在跑，已计费，不重新提交）")
 
 
 def make_video_engine(name: str) -> VideoEngine:

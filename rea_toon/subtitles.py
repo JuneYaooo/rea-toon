@@ -18,6 +18,7 @@ _OCR = None
 # an inner monologue is the character's voice with the mouth shut, even when they fill the frame.
 MODES = ("on", "off", "inner", "narration")
 MODE_CN = {"on": "", "off": "画外", "inner": "内心独白", "narration": "旁白"}
+NARRATOR = "narrator"  # speaker of a narration line whose teller is not one of the characters
 
 
 def line_mode(x: dict) -> str:
@@ -146,3 +147,17 @@ def to_srt(subs: list[dict], path: Path) -> None:
         return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
     path.write_text("\n".join(f"{i}\n{ts(s['start'])} --> {ts(s['end'])}\n{s['text']}\n"
                               for i, s in enumerate(subs, 1)), encoding="utf-8")
+
+
+def unique_lines(story: dict, cards: bool = False) -> list[dict]:
+    """Every subtitle line once. A line that runs across a cut sits in both shots (each with its own mode: said on
+    camera in one, heard over the listener in the other); counted once, the copy said on camera speaks for it."""
+    out: dict[tuple, dict] = {}
+    for s in story.get("shots") or []:
+        for x in s.get("subtitles") or []:
+            if x.get("card") and not cards:
+                continue
+            k = (x.get("start"), x.get("end"), x.get("text"))
+            if k not in out or (line_mode(x) == "on" and line_mode(out[k]) != "on"):
+                out[k] = x
+    return sorted(out.values(), key=lambda x: (x.get("start") or 0))

@@ -160,3 +160,57 @@ def test_series_keeps_hand_fixed_cast(tmp_path: Path):
     lin = next(c for c in ser["characters"] if c["id"] == "lin")
     assert lin["episodes"] == [1, 2] and lin["seconds"] == 34.0
     assert any(c["members"] == ["E1:boss"] for c in ser["characters"])  # not in the hand-made list: stands alone
+
+
+def test_line_across_a_cut_counts_once():
+    from rea_toon.report import metrics
+    story = _episode()
+    # the boss's line runs over the cut into shot 3, heard there over the listener
+    story["shots"][2]["subtitles"] = [_line(5.5, 7.5, "就凭我是老板", "boss", "off")]
+    m = metrics(story)
+    assert m["talk_chars"]["boss"] == len("你被开除了") + len("就凭我是老板") and m["lines"] == 4
+
+
+def test_no_payoff_at_all_is_one_dead_zone():
+    from rea_toon.report import metrics
+    story = _episode()
+    story["breakdown"]["beats"] = [b for b in story["breakdown"]["beats"] if b["type"] != "reversal"]
+    m = metrics(story)
+    assert m["first_peak"] is None and m["dead_zones"] == [{"from": 0.0, "to": 57.0, "len": 57.0}]
+
+
+def test_commentary_static_vs_dynamic():
+    from rea_toon.genre import format_of
+    story = _episode()
+    for s in story["shots"]:
+        for x in s["subtitles"]:
+            x["mode"] = "narration"
+        s["motion"] = {"kind": "pan"}
+    assert format_of(story)["id"] == "commentary_static"
+
+
+def test_narrator_is_a_speaker():
+    from rea_toon.analyze import attribute_lines
+
+    class FakeVLM:
+        def ask_json(self, *a, **k):
+            return {"lines": [{"i": 0, "speaker": "旁白", "mode": "narration"}, {"i": "1", "speaker": "narrator"}]}
+
+    story = _episode()
+    n = attribute_lines(story, FakeVLM())
+    first, second = story["shots"][0]["subtitles"][0], story["shots"][1]["subtitles"][0]
+    assert n == 2 and first["speaker"] == second["speaker"] == "narrator"
+    assert second["mode"] == "narration" and not second["on_screen"]
+
+
+def test_series_add_skips_known_sources(tmp_path, monkeypatch):
+    from rea_toon import series
+    import rea_toon.ingest as ing
+    monkeypatch.setattr(ing, "ingest", lambda src, w: (w.mkdir(parents=True, exist_ok=True), {})[1])
+    src = tmp_path / "videos"
+    src.mkdir()
+    for k in (1, 2):
+        (src / f"第{k}集.mp4").write_bytes(b"x")
+    series.add(tmp_path / "s", [str(src)])
+    ser = series.add(tmp_path / "s", [str(src)])  # the same first command again: resume, not 4 episodes
+    assert [e["ep"] for e in ser["episodes"]] == [1, 2]

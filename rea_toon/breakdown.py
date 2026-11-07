@@ -29,7 +29,7 @@ from pathlib import Path
 
 from .vlm import VLM
 from .prompts import BEATS_PROMPT, SCENE_LOOKS_PROMPT, SCENES_PROMPT
-from .subtitles import MODE_CN, line_mode
+from .subtitles import MODE_CN, NARRATOR, line_mode
 
 LOG = logging.getLogger(__name__)
 
@@ -153,9 +153,13 @@ def _parts(v) -> dict:
 
 
 def _day(sc: dict) -> str:
-    """Story day of a scene (D1, N1, D2 …); flashbacks get their own key, they never share a look with the present."""
+    """Story day of a scene (D1, N1, D2 …); flashbacks get their own key, they never share a look with the present.
+    A flashback labelled only "回忆" has no day: two such scenes can be years apart."""
+    import re
     d = str(sc.get("day") or "").strip()
-    return f"{d}*" if d and sc.get("flashback") else d
+    if sc.get("flashback"):
+        return f"{d}*" if re.search(r"\d", d) else ""
+    return d
 
 
 def _differs(a: str, b: str) -> bool:
@@ -601,6 +605,34 @@ def risks(story: dict, shot: dict, key: dict | None = None) -> list[str]:
     return out
 
 
+def _side(where: str) -> int:
+    """-1 left, 1 right, 0 centre / not said, from a position like 画面左侧前景 or 画面中央偏右."""
+    w = str(where or "")
+    left, right = "左" in w, "右" in w
+    return -1 if left and not right else 1 if right and not left else 0
+
+
+def axis_flips(story: dict) -> list[tuple[int, int, str, str]]:
+    """Two people who swap screen sides between two shots of the same scene that both show them (a jump over the
+    180° line, or a misread position): (earlier shot, later shot, the one on the left before, the other)."""
+    out, last = [], {}  # (scene, a, b) -> (shot, a is left of b)
+    for s in story.get("shots") or []:
+        sc = scene_of(story, s["index"])
+        side = {c.get("id"): _side(c.get("where")) for c in (s.get("analysis") or {}).get("characters") or []
+                if c.get("id") and "crowd" not in str(c.get("id"))}
+        ids = sorted(k for k, v in side.items() if v)
+        for n, a in enumerate(ids):
+            for b in ids[n + 1:]:
+                if side[a] == side[b]:
+                    continue
+                key, left = ((sc or {}).get("id"), a, b), side[a] < side[b]
+                if key in last and last[key][1] != left:
+                    i = last[key][0]
+                    out.append((i, s["index"], *((a, b) if not left else (b, a))))
+                last[key] = (s["index"], left)
+    return out
+
+
 def lint(story: dict) -> list[dict]:
     """Consistency problems of the breakdown. level error = must be fixed before lock; warn = look at it."""
     from .analyze import identity_pairs
@@ -621,7 +653,7 @@ def lint(story: dict) -> list[dict]:
         for x in _lines_of(s):
             if not x.get("speaker"):
                 add("error", i, f"台词「{x['text']}」没有说话人")
-            elif x["speaker"] not in ids:
+            elif x["speaker"] not in ids | {NARRATOR}:
                 add("error", i, f"台词「{x['text']}」的说话人 {x['speaker']} 不在角色表里")
             elif x.get("on_screen") and x["speaker"] not in here:
                 add("warn", i, f"台词「{x['text']}」标成 {x['speaker']} 在画面里说，但这一镜没标出 {x['speaker']}")
@@ -665,8 +697,14 @@ def lint(story: dict) -> list[dict]:
             end = look_parts(story, cid, sc["shots"][1]).get("wear", "")
             if end:
                 last[(_day(sc), cid)] = (sc, end)
+    for i, j, a, b in axis_flips(story):
+        add("warn", j, f"{a} 和 {b} 在镜{i}是{a}左{b}右，到镜{j}左右换了（同一场）：可能越轴，"
+                       f"原片就是这样拍的复刻照做，否则是拆解看错了位置")
     chars = [c for c in story["characters"] if c.get("importance") != "extra" and "crowd" not in c["id"]]
+    distinct = [sorted(x) for x in (story.get("refined") or {}).get("distinct") or []]
     for (a, b), clues in identity_pairs(story, chars).items():
+        if sorted((a, b)) in distinct:  # a model already looked at both and said they are different people
+            continue
         add("warn", None, f"{a} 和 {b} 可能是同一个人（乔装/换装），确认后在 story.json 合并：{clues[0]}")
     must = sum(1 for s in story["shots"] if (s.get("key") or {}).get("priority") == "must")
     if bd and must > 0.35 * len(story["shots"]):
@@ -679,7 +717,11 @@ def breakdown(work: Path, vlm: VLM | None = None, workers: int = 6) -> dict:
     from .analyze import contact_sheets
     vlm = vlm or VLM(cache_dir=work / "analysis" / "vlm_cache")
     path = work / "story.json"
-    story = json.loads(path.read_text(encoding="utf-8"))
+    before = path.read_text(encoding="utf-8")
+    story = json.loads(before)
+    if story.get("breakdown"):  # a redo replaces hand edits of key / scenes: keep the old file to copy them back from
+        (work / "story.prev.json").write_text(before, encoding="utf-8")
+        LOG.info("重做深度拆解：旧版本存在 story.prev.json（手改过的看点/造型可以从这里抄回来）")
     n = len(story["shots"])
     cast = _cast_text(story)
     sheets = sorted((work / "analysis").glob("contact_*.jpg")) or contact_sheets(story["shots"], work)
@@ -709,7 +751,7 @@ def breakdown(work: Path, vlm: VLM | None = None, workers: int = 6) -> dict:
                       ("角色表情清单", lambda: expressions(story, vlm))):
         LOG.info("深度拆解：%s …", label)
         try:
-            LOG.info("%s：%d", label, fn())
+            LOG.info("%s：%s", label, fn())
         except Exception as exc:  # the breakdown goes on; the remake simply has less to go by
             LOG.warning("%s失败：%s", label, exc)
     LOG.info("深度拆解：戏剧节拍和逐镜看点 …")

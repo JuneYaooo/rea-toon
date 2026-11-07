@@ -90,6 +90,22 @@ def test_story_day_carries_looks_and_flags_outfit_jumps():
     assert any("同一剧情日 D1" in m and "S4" in m for m in msgs)
 
 
+def test_dayless_flashbacks_and_checked_pairs_are_not_flagged():
+    """Two memories both labelled 回忆 can be years apart; a pair a model already called two people is not raised again."""
+    from rea_toon.breakdown import lint
+    story = {"characters": [{"id": "sis", "importance": "lead", "shots": [1, 2, 3]},
+                            {"id": "tiger", "importance": "support", "shots": [4, 5, 6]}],
+             "shots": [{"index": i, "start": i - 1, "end": i, "duration": 1, "subtitles": [], "analysis": {"characters": [{"id": "sis" if i < 4 else "tiger"}]}} for i in range(1, 7)],
+             "breakdown": {"scenes": [
+                 {"id": "S1", "shots": [1, 2], "day": "回忆", "flashback": True, "looks": {"sis": {"wear": "红色古装"}}},
+                 {"id": "S2", "shots": [3, 6], "day": "回忆", "flashback": True, "looks": {"sis": {"wear": "破旧粗布衣"}}}]}}
+    msgs = [x["msg"] for x in lint(story)]
+    assert not any("同一剧情日" in m for m in msgs)
+    assert any("可能是同一个人" in m for m in msgs)
+    story["refined"] = {"distinct": [["tiger", "sis"]]}
+    assert not any("可能是同一个人" in x["msg"] for x in lint(story))
+
+
 def test_freeze_and_transient_detection(tmp_path: Path):
     """A held last second is a freeze, motion before it is not; clicks over quiet noise are transients."""
     import subprocess
@@ -125,3 +141,14 @@ def test_contacts_snap_to_the_hit(tmp_path: Path, monkeypatch):
     c = shot["contacts"][0]
     assert c["sound"] and c["t"] == 0.3  # snapped to the strongest onset within 0.3 s
     assert "contact" in breakdown.risks(story, shot)
+
+
+def test_axis_flip_within_a_scene():
+    from rea_toon.breakdown import axis_flips
+    shot = lambda i, *who: {"index": i, "analysis": {"characters": [{"id": c, "where": w} for c, w in who]}}
+    story = {"shots": [shot(1, ("a", "画面左侧"), ("b", "画面中央偏右")),
+                       shot(2, ("a", "画面中央"), ("b", "画面右侧")),          # centre: no side, no verdict
+                       shot(3, ("b", "画面左侧，背对镜头"), ("a", "画面右侧")),  # swapped
+                       shot(4, ("b", "画面左侧"), ("a", "画面右侧"))],          # next scene: a new start
+             "breakdown": {"scenes": [{"id": "S1", "shots": [1, 3]}, {"id": "S2", "shots": [4, 4]}]}}
+    assert axis_flips(story) == [(1, 3, "a", "b")]

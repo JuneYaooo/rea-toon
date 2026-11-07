@@ -106,6 +106,12 @@ def cmd_run(a):
     r.keep = set(a.keep.split(",")) if a.keep else set()
     res = r.run(until="clips" if a.pilot else a.until, force=force, only=only)
     failed = sorted(i for i, v in res.get("results", {}).items() if v.get("error"))
+    if a.until == "frames" and not a.pilot:  # the keyframe review happens now, before any video is paid for
+        from .assemble import review_sheet
+        drawn = [s["index"] for s in r.story["shots"] if (r.out / "frames" / f"{s['id']}_first.png").is_file()]
+        sheet = review_sheet(r.work, r.story, r.out, drawn)
+        if sheet:
+            print(f"关键帧对照：{sheet}（原首帧 | 新首帧 | 原尾帧 | 新尾帧）")
     if (a.pilot or a.until == "clips") and not a.no_assemble:
         out = assemble(r.work, r.out, res["plan"]["shots"], reburn=r.spec.subtitles == "reburn",
                        label=r.spec.aigc_label)

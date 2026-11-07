@@ -14,10 +14,11 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from .breakdown import lock_state
 from .genre import format_of
 from .page import bar_chart, esc, line_chart, page
 from .prompts import REPORT_PROMPT
-from .subtitles import MODE_CN, line_mode
+from .subtitles import MODE_CN, line_mode, unique_lines
 from .vlm import VLM
 
 LOG = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ def _main(story: dict) -> list[dict]:
 
 
 def _lines(story: dict) -> list[dict]:
-    return [x for s in story.get("shots") or [] for x in s.get("subtitles") or [] if not x.get("card")]
+    return unique_lines(story)
 
 
 def intensity(shot: dict) -> float:
@@ -129,10 +130,13 @@ def metrics(story: dict) -> dict:
         "talk_modes": {MODE_CN.get(k) or "画内": v for k, v in modes.items()},
         "first_conflict": first(("conflict",)), "first_peak": first(PEAKS), "peaks": len(peaks),
         "cliffhanger": any(b["type"] == "cliffhanger" for b in beats),
-        # the stretch before the first peak is the setup (measured as first_peak), not a lull
-        "peak_gaps": gaps, "dead_zones": [g for g in gaps[1:] if g["len"] > DEAD_GAP],
+        # the stretch before the first peak is the setup (measured as first_peak), not a lull; with no peak at all
+        # the whole episode is one
+        "peak_gaps": gaps, "dead_zones": [g for g in (gaps[1:] if peaks else gaps) if g["len"] > DEAD_GAP],
+        "longest_gap": max((g["len"] for g in gaps[1:]), default=None) if peaks else None,
+        "avg_gap": round(sum(g["len"] for g in gaps[1:-1]) / len(gaps[1:-1]), 1) if len(gaps) > 2 else None,
         "opening": {"shots": [s["index"] for s in opening],
-                    "lines": [x["text"] for s in opening for x in s.get("subtitles") or [] if x["start"] < 3.0]},
+                    "lines": [x["text"] for x in lines if x["start"] < 3.0]},
         "screen_time": dict(sorted(screen.items(), key=lambda kv: -kv[1])),
         "talk_chars": dict(talk.most_common()), "talk_lines": dict(said.most_common()),
         "pairs": [{"a": a, "b": b, "seconds": round(v, 1), "exchanges": exchanges.get((a, b), 0)}
@@ -153,7 +157,8 @@ def _metrics_text(m: dict) -> str:
         f"台词 {m['lines']} 句，每秒 {m['talk_per_sec']} 字；说法分布 {m['talk_modes']}",
         f"第一个冲突在 {m['first_conflict']}s，第一个爽点/反转在 {m['first_peak']}s，爽点和反转共 {m['peaks']} 个，"
         f"{'有' if m['cliffhanger'] else '没有'}结尾钩子",
-        f"爽点之间的间隔：{gaps}",
+        f"爽点之间的间隔：{gaps}；两个爽点之间平均 {m['avg_gap']}s，最长空档（含最后一个爽点到片尾）{m['longest_gap']}s"
+        f"（业内常说每 15–30 秒一个情绪节点、30 秒内出第一个爽点）",
         f"开头 3 秒：镜头 {m['opening']['shots']}，台词 {m['opening']['lines']}",
         f"出镜秒数 {m['screen_time']}；台词字数 {m['talk_chars']}",
         "对手戏（同框秒数/你来我往的台词次数）：" + "；".join(f"{p['a']}×{p['b']} {p['seconds']}s/{p['exchanges']}次" for p in m["pairs"]),
@@ -188,7 +193,7 @@ def build(story: dict, vlm: VLM | None) -> dict:
     fmt = format_of(story)
     rep = {"schema": "rea_toon.report.v1", "title": (story.get("source") or {}).get("title") or "",
            "summary": story.get("summary", ""), "format": fmt, "metrics": m, "curve": curve(story),
-           "beats": beat_times(story), "locked": bool(story.get("lock"))}
+           "beats": beat_times(story), "locked": lock_state(story) == "locked"}
     if vlm is not None:
         try:
             rep["read"] = vlm.ask_json(_prompt(story, m, fmt), [], max_tokens=8000, timeout=300)
@@ -255,6 +260,10 @@ def to_md(rep: dict) -> str:
     L += ["## 数据", "", f"- 时长 {m['duration']}s · {m['shots']} 镜 · {m['scenes']} 场 · 平均镜长 {m['avg_shot']}s · 每分钟 {m['cuts_per_min']} 刀",
           f"- 台词每秒 {m['talk_per_sec']} 字 · 第一个冲突 {_sec(m['first_conflict'])} · 第一个爽点 {_sec(m['first_peak'])} · "
           f"爽点/反转 {m['peaks']} 个 · {'有' if m['cliffhanger'] else '没有'}结尾钩子"]
+    if m.get("avg_gap") is not None:
+        L.append(f"- 爽点间隔：平均 {m['avg_gap']}s · 最长 {m['longest_gap']}s")
+    if m["first_peak"] is not None and m["first_peak"] > DEAD_GAP:
+        L.append(f"- ⚠️ 第一个爽点在 {m['first_peak']:.1f}s，晚于 {DEAD_GAP:.0f}s")
     L += [f"- ⚠️ {g['from']}–{g['to']}s 连续 {g['len']}s 没有爽点或反转" for g in m["dead_zones"]] + [""]
     if r.get("hook"):
         L += ["## 开头钩子", "", r["hook"], ""]
@@ -299,7 +308,7 @@ def to_html(rep: dict, story: dict | None = None) -> str:
         B.append(f"<p class=err>模型解读失败（只有数据部分）：{esc(rep['read_error'])}；重跑 rea-toon report</p>")
     stats = [("时长", f"{m['duration']:.0f}s"), ("镜头", m["shots"]), ("平均镜长", f"{m['avg_shot']}s"),
              ("每分钟切镜", m["cuts_per_min"]), ("台词 字/秒", m["talk_per_sec"]), ("第一个爽点", _sec(m["first_peak"])),
-             ("爽点/反转", m["peaks"]), ("结尾钩子", "有" if m["cliffhanger"] else "没有")]
+             ("爽点/反转", m["peaks"]), ("爽点平均间隔", _sec(m.get("avg_gap"))), ("结尾钩子", "有" if m["cliffhanger"] else "没有")]
     B.append("<div class=stats>" + "".join(f"<div class=stat><b>{esc(v)}</b><span>{esc(k)}</span></div>" for k, v in stats) + "</div>")
     if r.get("hook"):
         B += ["<h2>开头钩子</h2>", f"<p>{esc(r['hook'])}</p>"]
@@ -318,6 +327,8 @@ def to_html(rep: dict, story: dict | None = None) -> str:
         B += ["<p class=muted>每段切镜数</p>",
               line_chart([((c["t0"] + c["t1"]) / 2, c["cuts"]) for c in cv], [], "每段切镜数",
                          max(4, max(c["cuts"] for c in cv)), [f"{c['t0']:.0f}–{c['t1']:.0f}s 切 {c['cuts']} 刀" for c in cv], h=120)]
+    if m["first_peak"] is not None and m["first_peak"] > DEAD_GAP:
+        B.append(f"<p class=warn>第一个爽点在 {m['first_peak']:.1f}s，晚于 {DEAD_GAP:.0f}s：开头可能留不住人</p>")
     if m["dead_zones"]:
         B.append(_list(m["dead_zones"], lambda g: f"<span class=warn>{g['from']}–{g['to']}s 连续 {g['len']}s 没有爽点或反转</span>"))
 

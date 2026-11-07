@@ -40,16 +40,27 @@ def ingest(source: str, work: Path) -> dict:
     meta: dict = {"input": source}
     local = Path(source).expanduser()
     if local.is_file():
-        shutil.copy2(local, dst)
+        if local.resolve() != dst.resolve():
+            shutil.copy2(local, dst)
     else:
         url = _share_url(source)
         if not url:
             raise RuntimeError(f"既不是本地文件也找不到链接：{source}")
+        from . import douyin
+        known = douyin.PLAY.get(douyin.video_id(url) or "")
         if re.search(r"\.(mp4|mov|webm)(\?|$)", url):
             video_url = url
+        elif known and known.get("url"):  # an episode of a collection: the play address is already known
+            video_url = known["url"]
+            meta.update(title=known.get("title"), author=known.get("author"), share_link=url, likes=known.get("likes"),
+                        episode=known.get("episode"))
         else:
             data = _parse_share(url)
             video_url = data.get("video_url") or data.get("videoUrls")
+            if isinstance(video_url, list):
+                video_url = next((u for u in video_url if isinstance(u, str) and u), None)
+            if not video_url:
+                raise RuntimeError(f"分享链接解析没有返回视频地址（可能是图文或已删除）：{url}")
             meta.update(title=data.get("title"), author=data.get("nickname"), share_link=url,
                         likes=data.get("liked_count"))
         LOG.info("下载 %s", video_url[:80])

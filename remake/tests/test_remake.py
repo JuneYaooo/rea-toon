@@ -585,3 +585,21 @@ def test_expression_list_and_sheet_refs(tmp_path: Path):
     r.spec.expression_sheet = True
     assert r._expr_cids() == ["groom"] and r.plan()["cast_sheets"] == 2
     assert r._expression("groom", {"index": 2}) == "冷笑" and r._expression("groom", {"index": 4}) == ""
+
+
+def test_a_paid_task_is_never_resubmitted(monkeypatch):
+    from rea_toon_remake.engines import video
+    calls = []
+
+    class Eng(video.VideoEngine):
+        name = "fake"
+
+        def _run(self, *a):
+            calls.append(1)
+            raise video.SubmittedError("timed out after submit")
+
+    monkeypatch.setattr(video.time, "sleep", lambda s: None)
+    import pytest
+    with pytest.raises(RuntimeError):
+        Eng().generate("p", Path("x.mp4"), 4)
+    assert len(calls) == 1

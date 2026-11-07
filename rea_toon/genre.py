@@ -7,7 +7,7 @@ producer studies in that kind of show, handed to the report prompt and shown in 
 
 from __future__ import annotations
 
-from .subtitles import line_mode
+from .subtitles import line_mode, unique_lines
 
 FORMATS = {
     "live_action": {
@@ -39,8 +39,20 @@ FORMATS = {
                  "旁白/对话气泡承担了多少叙事",
                  "哪些格子做了局部动或特效，钱花在哪"],
     },
+    "shadiao": {
+        "cn": "沙雕漫",
+        "lens": ["反差和梗的密度：多久一个笑点、靠台词梗还是画面梗",
+                 "简笔/Q 版人设靠什么一眼认出：配色、标志物、口头禅",
+                 "配音和音效怎么撑起笑点（变声、拟声、鬼畜重复）"],
+    },
+    "commentary_static": {
+        "cn": "静态解说漫",
+        "lens": ["解说词结构：开头钩子句、悬念句、反问、金句各在哪",
+                 "一张图配多少句解说、多久换图，换图是不是落在信息点上",
+                 "语速和信息密度：每秒几个字、多久抛一个新信息"],
+    },
     "commentary": {
-        "cn": "解说类短剧",
+        "cn": "动态解说漫",
         "lens": ["解说词结构：开头钩子句、悬念句、反问、金句各在哪",
                  "画面和解说的配合：说到哪切到哪、有没有画不对词",
                  "语速和信息密度：每秒几个字、多久抛一个新信息"],
@@ -49,7 +61,7 @@ FORMATS = {
 
 
 def _narration_share(story: dict) -> float:
-    lines = [x for s in story.get("shots") or [] for x in s.get("subtitles") or [] if not x.get("card")]
+    lines = unique_lines(story)
     if not lines:
         return 0.0
     chars = lambda xs: sum(len(str(x.get("text", ""))) for x in xs)
@@ -70,8 +82,12 @@ def format_of(story: dict) -> dict:
         return {"id": given, **FORMATS[given], "why": "story.json 里手动指定"}
     kind = str(((story.get("breakdown") or {}).get("style_bible") or {}).get("kind") or story.get("style") or "")
     narr, still = _narration_share(story), _still_share(story)
+    style = f"{kind} {story.get('style') or ''}"
     if narr >= 0.6:
-        fid, why = "commentary", f"{narr:.0%} 的台词是旁白"
+        fid, why = ("commentary_static", f"{narr:.0%} 的台词是旁白，{still:.0%} 的时长是静图") if still >= 0.5 else \
+                   ("commentary", f"{narr:.0%} 的台词是旁白，画面是动的")
+    elif "沙雕" in style:
+        fid, why = "shadiao", f"画风：{kind or story.get('style')}"
     elif still >= 0.5:
         fid, why = "motion_comic", f"{still:.0%} 的时长是静图或静图推拉"
     elif "动态漫" in kind:

@@ -61,7 +61,7 @@ def cmd_series(a):
     from . import series
     root = _work(a.work)
     if a.source:
-        ser = series.add(root, a.source, title=a.title)
+        ser = series.add(root, a.source, title=a.title, first=a.first)
         print(f"共 {len(ser['episodes'])} 集")
     elif a.title:
         ser = series.load(root); ser["title"] = a.title; series.save(root, ser)
@@ -150,8 +150,9 @@ def main(argv=None):
 
     p = sub.add_parser("series", help="整部剧：逐集拆解（可续跑）→ 跨集合并角色 → 主线、伏笔回收、集间钩子、付费卡点 → series.html")
     p.add_argument("work", help="整部剧的目录，每集放在 ep01/ ep02/ …")
-    p.add_argument("--source", nargs="+", help="追加这些集：视频文件、链接，或一个放着各集视频的文件夹（按文件名里的数字排序）")
+    p.add_argument("--source", nargs="+", help="追加这些集：视频文件、链接、抖音合集链接（按集号展开），或一个放着各集视频的文件夹（按文件名里的数字排序）")
     p.add_argument("--title", help="剧名")
+    p.add_argument("--first", type=int, help="只导入前 N 集（合集、文件夹里集数很多时先拆几集看看）")
     p.add_argument("--only-series", action="store_true", help="不补拆单集，只重做跨集部分")
     p.add_argument("--no-vlm", action="store_true"); p.add_argument("--workers", type=int, default=6)
     p.set_defaults(fn=cmd_series)

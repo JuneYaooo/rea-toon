@@ -98,7 +98,7 @@ LINE_SPEAKER_PROMPT = """这是一部短剧的完整台词，按时间顺序，�
 - on：说话的人在这个镜头画面里，嘴真的在说（看得到正脸或侧脸）
 - off：说话的人不在画面里，或者背对镜头（画外音）
 - inner：内心独白 / 心声 / 被"读心"听到的想法：声音是这个角色的，但他的嘴闭着，哪怕他就在画面正中
-- narration：旁白、解说（第三人称讲故事、"三年后"这类），画面里没有人在说
+- narration：旁白、解说（第三人称讲故事、"三年后"这类），画面里没有人在说；讲述者不是剧中角色时 speaker 写 "narrator"
 判断 inner 的线索：台词是心里话（"这女人在想什么""他居然不知道我是…"），和画面里正在发生的对话对不上，前后有人回应的是别的话；
 有"读心术""听到心声"设定的剧里尤其多。不确定就按 on/off 判断。
 同一句台词跨过切点时会在相邻两个镜头里各出现一行（常见：前一镜他在说，后一镜切到听的人的反应），要按每一行所在镜头的画面分别判断 mode，
@@ -107,7 +107,7 @@ LINE_SPEAKER_PROMPT = """这是一部短剧的完整台词，按时间顺序，�
 台词：
 {lines}
 
-只输出 JSON：{{"lines": [{{"i": 序号, "speaker": "角色id 或 title", "mode": "on|off|inner|narration"}}]}}"""
+只输出 JSON：{{"lines": [{{"i": 序号, "speaker": "角色id、narrator 或 title", "mode": "on|off|inner|narration"}}]}}"""
 
 # One person split into two ids (disguise, costume change, cross-dressing): the remake would give them two looks.
 # Asked about the whole cast at once the model explains clues away; asked about one suspect pair it weighs them.
@@ -215,9 +215,6 @@ SCREEN_TEXT_PROMPT = """图是短剧第 {index} 镜的画面。OCR 在画面里�
 - watermark：台标、平台水印、账号名、角标
 OCR 认错的乱码、看不出是字的纹理写 noise。
 只输出 JSON：{{"texts": [{{"i": 序号, "kind": "scene|bubble|overlay|aigc|watermark|noise"}}]}}"""
-
-
-# Compliance: AI dramas get rejected when a face resembles a real star (or drifts into one during production).
 
 
 STAGING_PROMPT = """图是短剧第 {index} 镜的画面（{size}）。画面里的角色：{people}

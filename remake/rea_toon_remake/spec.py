@@ -23,7 +23,7 @@ class CastSwap:
 
 @dataclass
 class RemakeSpec:
-    name: str
+    name: str = ""                      # defaults to the folder of remake.yaml
     style: str | None = None           # global restyle, e.g. "3D 皮克斯动画电影风格"; None = keep look
     cast: dict[str, CastSwap] = field(default_factory=dict)
     image_channel: str = "cyber"       # gpt-image-2 channel: cyber | krill | juling | openai

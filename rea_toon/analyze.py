@@ -148,14 +148,22 @@ def attribute_lines(story: dict, vlm: VLM) -> int:
     cast = "\n".join(f"- {c['id']}：{c.get('role')}，{str(c.get('appearance', ''))[:80]}" for c in story["characters"])
     res = vlm.ask_json(LINE_SPEAKER_PROMPT.format(summary=story.get("summary", ""), cast=cast, lines="\n".join(rows)),
                        [], max_tokens=16000, timeout=300)
-    ids = {c["id"] for c in story["characters"]} | {"title"}
+    ids = {c["id"] for c in story["characters"]} | {"title", subs_mod.NARRATOR}
     n = 0
     for r in res.get("lines") or []:
-        i = r.get("i")
-        if isinstance(i, int) and 0 <= i < len(refs) and r.get("speaker") in ids:
-            mode = r.get("mode") if r.get("mode") in subs_mod.MODES else ("on" if r.get("on_screen") else "off")
+        i, sp = r.get("i"), r.get("speaker")
+        if isinstance(i, str) and i.isdigit():
+            i = int(i)
+        if not isinstance(i, int) or not 0 <= i < len(refs):
+            continue
+        mode = r.get("mode") if r.get("mode") in subs_mod.MODES else ("on" if r.get("on_screen") else "off")
+        if sp not in ids and mode == "narration":
+            sp = subs_mod.NARRATOR  # a narrator the model named its own way ("旁白", "解说")
+        if sp == subs_mod.NARRATOR:
+            mode = "narration"
+        if sp in ids:
             # on_screen stays the switch every later stage reads: only a mouth that really talks on camera moves
-            refs[i].update(speaker=r["speaker"], mode=mode, on_screen=mode == "on")
+            refs[i].update(speaker=sp, mode=mode, on_screen=mode == "on")
             n += 1
     return n
 
@@ -265,7 +273,11 @@ def merge_identities(story: dict, work: Path, vlm: VLM) -> list[dict]:
         except Exception as exc:  # a safety net, never a blocker
             LOG.warning("角色合并检查 %s/%s 失败：%s", a, b, exc)
             continue
-        if not r.get("same"):
+        if not r.get("same"):  # remembered so the breakdown check does not raise the pair again
+            pair = sorted((a, b))
+            seen = story.setdefault("refined", {}).setdefault("distinct", [])
+            if pair not in seen:
+                seen.append(pair)
             continue
         # keep the one that is introduced first / has more shots; the other becomes one of its outfits
         keep, drop = sorted((by_id[a], by_id[b]), key=lambda c: (min(c.get("shots") or [999]), -len(c.get("shots", []))))
@@ -315,6 +327,16 @@ def analyze(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[float
         subs_path.write_text(json.dumps(subs, ensure_ascii=False, indent=1), encoding="utf-8")
         subs_mod.to_srt(subs, work / "subtitles.srt")
 
+    # frames are named by shot number: once the cuts change, every frame (and the acting / contact frames) is another shot's
+    marker = work / "frames" / "cuts.json"
+    want = sorted(cuts or [])
+    refresh = marker.is_file() and json.loads(marker.read_text(encoding="utf-8")) != want or (not marker.is_file() and bool(want))
+    if refresh and (work / "frames").is_dir():
+        LOG.info("切点变了：重抽所有镜头帧")
+        shutil.rmtree(work / "frames")
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(json.dumps(want), encoding="utf-8")
+
     shots = []
     for s in bd["shots"]:
         sid = f"shot_{s['index']:03d}"
@@ -322,7 +344,7 @@ def analyze(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[float
         frames = {}
         for name, t in (("first", start + 0.04), ("mid", (start + end) / 2), ("last", max(start, end - 0.07))):
             p = work / "frames" / f"{sid}_{name}.jpg"
-            if cuts or not p.is_file():  # forced cuts renumber the shots: old frames belong to other shots
+            if not p.is_file():
                 frame_at(src, t, p)
             frames[name] = str(p.relative_to(work))
         shots.append({"id": sid, "index": s["index"], "start": round(start, 3), "end": round(end, 3),
@@ -375,7 +397,8 @@ def analyze(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[float
         # story-level passes: one speaker per line (not per shot), one id per person across costume changes
         # (speakers first: the merge pass reads them; it renames the merged id inside them too)
         n = attribute_lines(story, vlm)
-        story["refined"] = {"lines": n, "merges": merge_identities(story, work, vlm)}
+        merges = merge_identities(story, work, vlm)
+        story.setdefault("refined", {}).update(lines=n, merges=merges)
     (work / "story.json").write_text(json.dumps(story, ensure_ascii=False, indent=1), encoding="utf-8")
     write_cast_sheet(story, work)
     return story

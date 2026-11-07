@@ -19,6 +19,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from .breakdown import lock_state
 from .genre import format_of
 from .media import font_path
 from .page import bar_chart, esc, page
@@ -35,11 +36,15 @@ def _natural(p: Path):
 
 
 def expand(sources: list[str]) -> list[str]:
-    """A folder stands for its videos in episode order (第2集 before 第10集); anything else is one episode."""
+    """A folder stands for its videos in episode order (第2集 before 第10集), a Douyin collection link for its
+    episodes in order; anything else is one episode."""
+    from . import douyin
     out = []
     for s in sources:
         d = Path(s).expanduser()
-        if d.is_dir():
+        if douyin.mix_id(s):
+            out += douyin.episodes(douyin.mix_id(s))
+        elif d.is_dir():
             out += [str(p) for p in sorted((p for p in d.iterdir() if p.suffix.lower() in VIDEO), key=_natural)]
         else:
             out.append(s)
@@ -58,17 +63,32 @@ def save(root: Path, ser: dict) -> None:
     (root / "series.json").write_text(json.dumps(ser, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
-def add(root: Path, sources: list[str], title: str | None = None) -> dict:
-    """Ingest new episodes as ep01, ep02, … after the ones already there."""
+def _same_source(src: str) -> str:
+    p = Path(src).expanduser()
+    return str(p.resolve()) if p.exists() else src.strip()
+
+
+def add(root: Path, sources: list[str], title: str | None = None, first: int | None = None) -> dict:
+    """Ingest new episodes as ep01, ep02, … after the ones already there. A source already in the series is skipped,
+    so re-running the first command (with --source) resumes instead of adding every episode again."""
     from .ingest import ingest
     ser = load(root)
     if title:
         ser["title"] = title
-    for src in expand(sources):
+    have = {_same_source(e["source"]) for e in ser["episodes"]}
+    todo = expand(sources)
+    for src in todo[:first] if first else todo:
+        if _same_source(src) in have:
+            continue
         ep = max((e["ep"] for e in ser["episodes"]), default=0) + 1
         d = f"ep{ep:02d}"
         LOG.info("第 %d 集 ← %s", ep, src[:80])
-        meta = ingest(src, root / d)
+        try:
+            meta = ingest(src, root / d)
+        except Exception as exc:  # one bad link does not stop the rest; it gets the next number when it works
+            LOG.warning("导入失败（跳过，重跑再试）：%s：%s", src[:80], exc)
+            continue
+        have.add(_same_source(src))
         ser["episodes"].append({"ep": ep, "dir": d, "source": src, "title": meta.get("title") or ""})
         save(root, ser)
     return ser
@@ -95,7 +115,8 @@ def analyze_all(root: Path, workers: int = 6, use_vlm: bool = True) -> list[dict
             if use_vlm and not (story.get("breakdown") or {}).get("beats"):
                 LOG.info("第 %d 集：深度拆解 …", e["ep"])
                 breakdown(w, workers=workers)
-            if use_vlm and not (w / "report.json").is_file():
+            rp = w / "report.json"  # redo a report older than its (re-broken-down) episode
+            if use_vlm and (not rp.is_file() or rp.stat().st_mtime < (w / "story.json").stat().st_mtime):
                 LOG.info("第 %d 集：爆款拆解 …", e["ep"])
                 report(w)
         except Exception as exc:
@@ -201,7 +222,7 @@ def episode_rows(root: Path, ser: dict) -> list[dict]:
     out = []
     for e in ser["episodes"]:
         story = _story(root, e)
-        if not story:
+        if not story or not (story.get("breakdown") or {}).get("beats"):  # not broken down yet: no numbers to read
             out.append({"ep": e["ep"], "dir": e["dir"], "missing": True})
             continue
         m = metrics(story)
@@ -214,7 +235,7 @@ def episode_rows(root: Path, ser: dict) -> list[dict]:
                     "first_peak": m["first_peak"], "cliffhanger": m["cliffhanger"], "screen_time": m["screen_time"],
                     "opening": read.get("hook") or (beats[0].get("what", "") if beats else ""),
                     "ending": (ending or {}).get("what", ""), "logline": read.get("logline", ""),
-                    "beats": [b["type"] for b in beats], "format": format_of(story)["cn"], "locked": bool(story.get("lock"))})
+                    "beats": [b["type"] for b in beats], "format": format_of(story)["cn"], "locked": lock_state(story) == "locked"})
     return out
 
 

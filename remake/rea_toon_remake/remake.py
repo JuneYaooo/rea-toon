@@ -1123,7 +1123,7 @@ class Remake:
             checked = bool(ck) and "error" not in ck or not (plan["swapped"] and frames.get("first"))
             ok = {"identity": checked and ck.get("identity_ok", True), "moving": not qa["motion"]["frozen"], "usable": usable,
                   "mouth": checked and ck.get("mouth_ok", True), "framed": framed, "sync": corr >= SYNC_MIN}
-            return {"qa": qa, "sync": sync, "ok": ok, "corr": corr if usable else -1.0,
+            return {"qa": qa, "sync": sync, "ok": ok, "corr": corr if usable else -1.0, "errored": "error" in ck,
                     "rank": (ok["identity"], ok["moving"], ok["usable"], ok["mouth"], ok["framed"], corr)}
 
         def gen(mode: str, seed_off: int, dst: Path) -> str:
@@ -1155,7 +1155,7 @@ class Remake:
             ladder.append("first_last")  # last resort: pinned, but often frozen
         cands = []    # (rank, path, mode, prompt, result)
         tmp = out.with_name(out.stem + ".try.mp4")
-        done = False
+        done = blind = False
         for li, mode in enumerate(ladder):
             # seeds: for sync only on dialogue; a character changing mid-clip (original people growing back,
             # two roles swapping looks) is seed luck, so it gets seeds in every mode (2 on pinned ones)
@@ -1181,6 +1181,12 @@ class Remake:
                 if not bad:
                     done = True
                     break
+                if r["errored"]:
+                    # the checking model is down, not the clip bad: paying for more clips cannot help; keep the best so far
+                    # and leave the guard unstamped so the next run checks it again (a check, not a generation)
+                    LOG.warning("镜头 %s 成片检查调用失败，不再重试生成；下次运行重新检查", shot["index"])
+                    done = blind = True
+                    break
                 ok = r["ok"]
                 if not ok["identity"]:
                     close = ok["moving"] and ok["usable"]  # worst failure, and random: another seed often fixes it
@@ -1197,7 +1203,7 @@ class Remake:
         failed = [n for n, v in r["ok"].items() if not v]
         if failed:
             LOG.warning("镜头 %s 所有候选都有问题，保留最好的一个（%s，未过：%s）", shot["index"], mode, ",".join(failed))
-        meta.update(prompt=pr, mode=mode, qa={**r["qa"], "failed": failed}, guard=self.GUARD)
+        meta.update(prompt=pr, mode=mode, qa={**r["qa"], "failed": failed}, guard=None if blind else self.GUARD)
         meta.pop("fallback_from", None)
         if mode != plan["mode"]:
             meta["fallback_from"] = plan["mode"]
