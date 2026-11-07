@@ -214,3 +214,25 @@ def test_series_add_skips_known_sources(tmp_path, monkeypatch):
     series.add(tmp_path / "s", [str(src)])
     ser = series.add(tmp_path / "s", [str(src)])  # the same first command again: resume, not 4 episodes
     assert [e["ep"] for e in ser["episodes"]] == [1, 2]
+
+
+def test_later_episodes_get_what_earlier_ones_settled(tmp_path):
+    import json
+    from rea_toon.series import prior_of
+    for ep, chars, summary in ((1, [{"id": "jiang", "role": "女主/穿越者", "appearance": "灰布衣"}], "女主穿越"),
+                               (2, [{"id": "girl", "role": "女性同伴", "appearance": "马尾"},
+                                    {"id": "crowd", "role": "群众"}], "第二集")):
+        d = tmp_path / f"ep{ep:02d}"; d.mkdir()
+        (d / "story.json").write_text(json.dumps({"summary": summary, "characters": chars, "shots": []}), encoding="utf-8")
+    ser = {"episodes": [{"ep": 1, "dir": "ep01"}, {"ep": 2, "dir": "ep02"}, {"ep": 3, "dir": "ep03"}],
+           "characters": [{"id": "jiang", "members": ["E1:jiang", "E2:girl"]}]}
+    assert prior_of(tmp_path, ser, 1) is None
+    p = prior_of(tmp_path, ser, 3)
+    assert p["ep"] == 3 and "第 1 集：女主穿越" in p["recap"] and "第 2 集" in p["recap"]
+    assert p["cast"].count("- jiang") == 1 and "女主/穿越者" in p["cast"] and "马尾" in p["cast"] and "crowd" not in p["cast"]
+
+
+def test_series_names_follow_the_script():
+    from rea_toon.series import spelled
+    text = "姜月初穿越至大唐\n我叫姜月初\n裴长青"
+    assert spelled("江月初", text) == "姜月初" and spelled("裴长青", text) == "裴长青" and spelled("虎妖", text) == "虎妖"

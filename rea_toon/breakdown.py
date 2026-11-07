@@ -612,9 +612,10 @@ def _side(where: str) -> int:
     return -1 if left and not right else 1 if right and not left else 0
 
 
-def axis_flips(story: dict) -> list[tuple[int, int, str, str]]:
-    """Two people who swap screen sides between two shots of the same scene that both show them (a jump over the
-    180° line, or a misread position): (earlier shot, later shot, the one on the left before, the other)."""
+def axis_flips(story: dict, near: int = 6) -> list[tuple[int, int, str, str]]:
+    """Two people who swap screen sides between two nearby shots of the same scene that both show them (a jump over
+    the 180° line, or a misread position): (earlier shot, later shot, the one on the left before, the other).
+    Two-shots far apart are not compared: the camera has had time to move round on screen."""
     out, last = [], {}  # (scene, a, b) -> (shot, a is left of b)
     for s in story.get("shots") or []:
         sc = scene_of(story, s["index"])
@@ -626,7 +627,7 @@ def axis_flips(story: dict) -> list[tuple[int, int, str, str]]:
                 if side[a] == side[b]:
                     continue
                 key, left = ((sc or {}).get("id"), a, b), side[a] < side[b]
-                if key in last and last[key][1] != left:
+                if key in last and last[key][1] != left and s["index"] - last[key][0] <= near:
                     i = last[key][0]
                     out.append((i, s["index"], *((a, b) if not left else (b, a))))
                 last[key] = (s["index"], left)

@@ -26,7 +26,7 @@ from PIL import Image, ImageDraw, ImageFont
 from . import subtitles as subs_mod
 from .vlm import VLM
 from .media import aspect_of, font_path, frame_at, probe
-from .prompts import CAST_PROMPT, IDENTITY_PROMPT, LINE_SPEAKER_PROMPT, PERFORMANCE_PROMPT, SHOT_PROMPT, SUBS_PROOFREAD_PROMPT
+from .prompts import CAST_PROMPT, IDENTITY_PROMPT, SERIES_CONTEXT, LINE_SPEAKER_PROMPT, PERFORMANCE_PROMPT, SHOT_PROMPT, SUBS_PROOFREAD_PROMPT
 
 LOG = logging.getLogger(__name__)
 
@@ -306,7 +306,9 @@ def refine(work: Path, vlm: VLM | None = None) -> dict:
     return {"merges": merges, "lines": n}
 
 
-def analyze(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[float] | None = None) -> dict:
+def analyze(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[float] | None = None,
+            prior: dict | None = None) -> dict:
+    """prior: what earlier episodes of a series settled, {"ep", "recap", "cast"} (series.prior_of); None for one video."""
     src = work / "source.mp4"
     info = probe(src)
     bd = decompose(work)
@@ -362,7 +364,11 @@ def analyze(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[float
         LOG.info("VLM: %s", vlm.describe())
         sheets = contact_sheets(shots, work)
         sub_lines = "\n".join(f"{s['index']}: " + (" / ".join(x["text"] for x in s["subtitles"]) or "（无）") for s in shots)
-        cast = vlm.ask_json(CAST_PROMPT.format(subtitles=sub_lines), sheets)
+        prompt = CAST_PROMPT.format(subtitles=sub_lines)
+        if prior and prior.get("cast"):
+            prompt += SERIES_CONTEXT.format(**prior)
+            story["prior"] = prior
+        cast = vlm.ask_json(prompt, sheets)
         story.update(summary=cast.get("summary", ""), style=cast.get("style", ""), palette=cast.get("palette", ""),
                      characters=cast.get("characters", []))
         cast_text = "\n".join(f"- {c['id']}（{c.get('role')}）：{c.get('appearance')}" for c in story["characters"])

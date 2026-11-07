@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -99,6 +99,31 @@ def _story(root: Path, e: dict) -> dict | None:
     return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None
 
 
+def prior_of(root: Path, ser: dict, ep: int, recap_eps: int = 3) -> dict | None:
+    """What the episodes before `ep` settled, for analysing it: the last few plots and the cast so far. A person seen
+    in several episodes is listed once (by the cross-episode id when series.json has one; its guessed name is left out,
+    the plots spell names as the subtitles do), with the role from the
+    episode that introduced them (later episodes guessed it with less to go by) and the latest look."""
+    seen = {m: c for c in ser.get("characters") or [] for m in c.get("members") or []}
+    recap, cast = [], {}
+    for e in sorted((e for e in ser["episodes"] if e["ep"] < ep), key=lambda e: e["ep"]):
+        story = _story(root, e)
+        if not story or not story.get("summary"):
+            continue
+        recap.append(f"第 {e['ep']} 集：{story['summary']}")
+        for c in story.get("characters") or []:
+            if c.get("importance") == "extra" or "crowd" in str(c.get("id")):
+                continue
+            u = seen.get(_label(e["ep"], c["id"])) or {}
+            cid = u.get("id") or c["id"]
+            row = cast.setdefault(cid, {"role": c.get("role", "")})
+            row["look"] = str(c.get("appearance", ""))[:80]
+    if not cast:
+        return None
+    lines = [f"- {cid}：{r['role']}；外貌：{r['look']}" for cid, r in cast.items()]
+    return {"ep": ep, "recap": "\n".join(recap[-recap_eps:]), "cast": "\n".join(lines)}
+
+
 def analyze_all(root: Path, workers: int = 6, use_vlm: bool = True) -> list[dict]:
     """Bring every episode up to analysis + breakdown + report; skip what is done; one failure does not stop the rest."""
     from .analyze import analyze
@@ -111,7 +136,7 @@ def analyze_all(root: Path, workers: int = 6, use_vlm: bool = True) -> list[dict
             story = _story(root, e)
             if story is None or not any(s.get("analysis") for s in story.get("shots") or []):
                 LOG.info("第 %d 集：拆剧本 …", e["ep"])
-                story = analyze(w, use_vlm=use_vlm, workers=workers)
+                story = analyze(w, use_vlm=use_vlm, workers=workers, prior=prior_of(root, ser, e["ep"]))
             if use_vlm and not (story.get("breakdown") or {}).get("beats"):
                 LOG.info("第 %d 集：深度拆解 …", e["ep"])
                 breakdown(w, workers=workers)
@@ -212,7 +237,34 @@ def unify(root: Path, ser: dict, vlm: VLM | None) -> list[dict]:
     except Exception as exc:
         LOG.warning("跨集角色合并失败，先按 id 合并：%s", exc)
         return unify(root, ser, None)
-    return _clean_groups(r.get("characters") or [], entries)
+    groups = _clean_groups(r.get("characters") or [], entries)
+    text = _script(root, ser)
+    for g in groups:
+        if g.get("name"):
+            g["name"] = spelled(g["name"], text)
+    return groups
+
+
+def _script(root: Path, ser: dict) -> str:
+    """Every plot summary and subtitle line of the series, to check a name against."""
+    out = []
+    for e in ser["episodes"]:
+        story = _story(root, e) or {}
+        out.append(str(story.get("summary", "")))
+        out += [str(x.get("text", "")) for s in story.get("shots") or [] for x in s.get("subtitles") or []]
+    return "\n".join(out)
+
+
+def spelled(name: str, text: str) -> str:
+    """The name as the show writes it: a model naming people from pictures often picks a homophone (江月初 for 姜月初).
+    A name the script never has is swapped for the most frequent spelling in it that differs by one character."""
+    import re
+    if not name or name in text or len(name) < 2:
+        return name
+    seen = Counter()
+    for i in range(len(name)):
+        seen.update(re.findall(re.escape(name[:i]) + r"[\u4e00-\u9fff]" + re.escape(name[i + 1:]), text))
+    return seen.most_common(1)[0][0] if seen else name
 
 
 # ---- the series read ----

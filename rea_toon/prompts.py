@@ -23,6 +23,19 @@ CAST_PROMPT = """你在给一部 AI 短剧做"剧本逆向"。下面几张图是
 """
 
 
+# Episode N of a series is analysed on its own; without what earlier episodes settled the model re-guesses who is who
+# (episode 2 cast the time traveller as the wrong person). Appended to CAST_PROMPT only in a series, so a single video's
+# prompt (and its cache) stays as it was.
+SERIES_CONTEXT = """
+
+这是一部连续剧的第 {ep} 集，下面是前面几集已经拆出来的情况，概括剧情和认角色时以此为准（身份、谁是穿越者/重生者、谁和谁什么关系），
+只有画面和台词明显对不上时才按画面改：
+前情：
+{recap}
+已出场的角色：同一个人在这一集出现时沿用这里的 id 和身份（换了衣服也是同一个人，外貌按这一集画面写）；新角色再起新 id：
+{cast}"""
+
+
 SHOT_PROMPT = """你在给一部 AI 短剧做逐镜头拆解，目的是之后用"首帧/尾帧 + 视频模型"把这个镜头重新生成出来，
 并且可能把其中某些角色换成别的形象。剧情：{summary}
 
