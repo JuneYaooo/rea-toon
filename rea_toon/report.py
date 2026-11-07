@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .breakdown import lock_state
 from .genre import format_of
-from .page import bar_chart, esc, line_chart, page
+from .page import bar_chart, esc, line_chart, page, point
 from .prompts import REPORT_PROMPT
 from .subtitles import MODE_CN, line_mode, unique_lines
 from .vlm import VLM
@@ -280,7 +280,7 @@ def to_md(rep: dict) -> str:
         L += ["## 关系和张力", ""] + [f"- {x.get('a')} × {x.get('b')}：{x.get('relation')}；{x.get('tension')}" for x in r["relations"]] + [""]
     for key, name in (("why_it_works", "为什么留得住人"), ("weaknesses", "短板"), ("remix", "改编方向")):
         if r.get(key):
-            L += [f"## {name}", ""] + [f"- {x}" for x in r[key]] + [""]
+            L += [f"## {name}", ""] + [f"- {point(x)}" for x in r[key]] + [""]
     if r.get("formula"):
         L += ["## 可复用公式", ""] + [f"{i}. **{x.get('step')}**（约 {float(x.get('share') or 0):.0%}）：{x.get('what')}"
                                    for i, x in enumerate(r["formula"], 1)] + [""]
@@ -358,13 +358,13 @@ def to_html(rep: dict, story: dict | None = None) -> str:
                            for p in m["pairs"]) + "</table></div>")
     for key, name in (("why_it_works", "为什么留得住人"), ("weaknesses", "短板")):
         if r.get(key):
-            B += [f"<h2>{name}</h2>", _list(r[key], esc)]
+            B += [f"<h2>{name}</h2>", _list(r[key], lambda x: esc(point(x)))]
     if r.get("formula"):
         B.append("<h2>可复用公式</h2><div class=tw><table><tr><th>#</th><th>步骤</th><th>占比</th><th>要做到</th></tr>"
                  + "".join(f"<tr><td>{i}</td><td><b>{esc(x.get('step'))}</b></td><td>{float(x.get('share') or 0):.0%}</td><td>{esc(x.get('what'))}</td></tr>"
                            for i, x in enumerate(r["formula"], 1)) + "</table></div>")
     if r.get("remix"):
-        B += ["<h2>改编方向</h2>", _list(r["remix"], esc)]
+        B += ["<h2>改编方向</h2>", _list(r["remix"], lambda x: esc(point(x)))]
     B += [f"<h2>{esc(rep['format']['cn'])}要看的</h2>", _list(rep["format"]["lens"], esc),
           "<details><summary>镜头语言数据</summary>"
           f"<p>景别：{esc(m['shot_sizes'])}<br>运镜：{esc(m['camera_moves'])}<br>画面动法：{esc(m['motion'])}<br>"

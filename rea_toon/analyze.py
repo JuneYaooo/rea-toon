@@ -136,13 +136,14 @@ def attribute_lines(story: dict, vlm: VLM) -> int:
     """Who says each subtitle line, from the whole script (shot analysis only sees stills and allows one speaker
     per shot). Writes speaker / on_screen into every shot's subtitles; returns how many lines got a speaker."""
     mark_cards(story)
-    rows, refs = [], []
+    rows, refs, seen = [], [], []
     for s in story["shots"]:
         for x in s.get("subtitles") or []:
             if x.get("card"):
                 continue
             rows.append(f"{len(rows)}|镜{s['index']}|{x['start']:.1f}s|{_visible(s)}|{x['text']}")
             refs.append(x)
+            seen.append({c.get("id") for c in (s.get("analysis") or {}).get("characters") or []})
     if not rows:
         return 0
     cast = "\n".join(f"- {c['id']}：{c.get('role')}，{str(c.get('appearance', ''))[:80]}" for c in story["characters"])
@@ -161,6 +162,8 @@ def attribute_lines(story: dict, vlm: VLM) -> int:
             sp = subs_mod.NARRATOR  # a narrator the model named its own way ("旁白", "解说")
         if sp == subs_mod.NARRATOR:
             mode = "narration"
+        if mode == "on" and sp not in seen[i]:  # a mouth that is not in the picture cannot talk on camera
+            mode = "off"
         if sp in ids:
             # on_screen stays the switch every later stage reads: only a mouth that really talks on camera moves
             refs[i].update(speaker=sp, mode=mode, on_screen=mode == "on")
@@ -301,8 +304,13 @@ def refine(work: Path, vlm: VLM | None = None) -> dict:
     n = attribute_lines(story, vlm)
     merges = merge_identities(story, work, vlm)
     story.setdefault("refined", {}).update(merges=story.get("refined", {}).get("merges", []) + merges, lines=n)
+    if story.get("breakdown"):  # the review page shows the checks: redo them (code only, no model call)
+        from .breakdown import lint, write_review
+        story["lint"] = lint(story)
     story_path.write_text(json.dumps(story, ensure_ascii=False, indent=1), encoding="utf-8")
     write_cast_sheet(story, work)
+    if story.get("breakdown"):
+        write_review(story, work)
     return {"merges": merges, "lines": n}
 
 

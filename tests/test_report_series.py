@@ -236,3 +236,21 @@ def test_series_names_follow_the_script():
     from rea_toon.series import spelled
     text = "姜月初穿越至大唐\n我叫姜月初\n裴长青"
     assert spelled("江月初", text) == "姜月初" and spelled("裴长青", text) == "裴长青" and spelled("虎妖", text) == "虎妖"
+
+
+def test_a_speaker_not_in_the_shot_is_off_screen():
+    from rea_toon.analyze import attribute_lines
+
+    class FakeVLM:
+        def ask_json(self, *a, **k):  # shot 1 shows only hero; shot 2 shows both
+            return {"lines": [{"i": 0, "speaker": "boss", "mode": "on"}, {"i": 1, "speaker": "hero", "mode": "on"}]}
+
+    story = _episode()
+    attribute_lines(story, FakeVLM())
+    first, second = story["shots"][0]["subtitles"][0], story["shots"][1]["subtitles"][0]
+    assert first["mode"] == "off" and not first["on_screen"] and second["mode"] == "on" and second["on_screen"]
+
+
+def test_list_items_given_as_objects_read_as_text():
+    from rea_toon.page import point
+    assert point({"risk": "中段拖", "evidence": "24–73s 没爽点"}) == "中段拖：24–73s 没爽点" and point("一句话") == "一句话"

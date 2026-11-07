@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .breakdown import lock_state
 from .genre import format_of
 from .media import font_path
-from .page import bar_chart, esc, page
+from .page import bar_chart, esc, page, point
 from .prompts import SERIES_CAST_PROMPT, SERIES_PROMPT
 from .report import metrics, span
 from .vlm import VLM
@@ -364,7 +364,7 @@ def to_md(ser: dict) -> str:
         L += ["## 付费卡点", ""] + [f"- 第 {x.get('ep')} 集：{x.get('why')}" for x in r["paywall"]] + [""]
     for k, name in (("pacing", "跨集节奏"), ("tropes", "反复使用的套路"), ("remix", "复用方向")):
         if r.get(k):
-            L += [f"## {name}", ""] + [f"- {x}" for x in r[k]] + [""]
+            L += [f"## {name}", ""] + [f"- {point(x)}" for x in r[k]] + [""]
     if r.get("formula"):
         L += ["## 打法", ""] + [f"- **{x.get('stage')}**：{x.get('what')}" for x in r["formula"]] + [""]
     return "\n".join(L) + "\n"
@@ -428,12 +428,12 @@ def to_html(ser: dict) -> str:
         B.append("<h2>付费卡点</h2><ul>" + "".join(f"<li><b>第 {esc(x.get('ep'))} 集</b>：{esc(x.get('why'))}</li>" for x in r["paywall"]) + "</ul>")
     for k, name in (("pacing", "跨集节奏"), ("tropes", "反复使用的套路")):
         if r.get(k):
-            B.append(f"<h2>{name}</h2><ul>" + "".join(f"<li>{esc(x)}</li>" for x in r[k]) + "</ul>")
+            B.append(f"<h2>{name}</h2><ul>" + "".join(f"<li>{esc(point(x))}</li>" for x in r[k]) + "</ul>")
     if r.get("formula"):
         B.append("<h2>打法</h2><div class=tw><table><tr><th>阶段</th><th>打法</th></tr>"
                  + "".join(f"<tr><td class=n><b>{esc(x.get('stage'))}</b></td><td>{esc(x.get('what'))}</td></tr>" for x in r["formula"])
                  + "</table></div>")
     if r.get("remix"):
-        B.append("<h2>复用方向</h2><ul>" + "".join(f"<li>{esc(x)}</li>" for x in r["remix"]) + "</ul>")
+        B.append("<h2>复用方向</h2><ul>" + "".join(f"<li>{esc(point(x))}</li>" for x in r["remix"]) + "</ul>")
     return page(f"整部剧拆解 {ser['title']}", B)
 

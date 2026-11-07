@@ -36,6 +36,13 @@ t.textContent=x.getAttribute('data-tip');t.style.display='block'});
 document.addEventListener('mousemove',function(e){t.style.left=Math.min(e.clientX+12,innerWidth-330)+'px';t.style.top=(e.clientY+14)+'px'});})();</script>"""
 
 
+def point(x) -> str:
+    """One list item as text: models sometimes answer a list of sentences with objects ({"risk", "evidence"})."""
+    if isinstance(x, dict):
+        return "：".join(str(v) for v in x.values() if v not in (None, "", [], {}))
+    return str(x if x is not None else "")
+
+
 def esc(x) -> str:
     return html.escape(str(x if x is not None else ""))
 

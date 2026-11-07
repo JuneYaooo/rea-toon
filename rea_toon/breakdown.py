@@ -644,6 +644,7 @@ def lint(story: dict) -> list[dict]:
     bd = story.get("breakdown") or {}
     if not bd:
         add("error", None, "还没做深度拆解（rea-toon breakdown）")
+    unknown: dict[str, list[int]] = {}  # ids a shot names that the cast does not have
     for s in story["shots"]:
         a = s.get("analysis") or {}
         i = s["index"]
@@ -659,7 +660,7 @@ def lint(story: dict) -> list[dict]:
             elif x.get("on_screen") and x["speaker"] not in here:
                 add("warn", i, f"台词「{x['text']}」标成 {x['speaker']} 在画面里说，但这一镜没标出 {x['speaker']}")
         for c in here - ids - {"crowd", None}:
-            add("warn", i, f"画面里的 {c} 不在角色表里")
+            unknown.setdefault(c, []).append(i)
         perf = s.get("performance")
         if here & main and (not perf or perf.get("error")):
             add("error", i, "有主要角色但没有表演拆解（逐秒表情/口型）")
@@ -707,6 +708,9 @@ def lint(story: dict) -> list[dict]:
         if sorted((a, b)) in distinct:  # a model already looked at both and said they are different people
             continue
         add("warn", None, f"{a} 和 {b} 可能是同一个人（乔装/换装），确认后在 story.json 合并：{clues[0]}")
+    for c, at in sorted(unknown.items(), key=lambda kv: kv[1][0]):
+        add("warn", at[0], f"画面里的 {c}（镜{'、'.join(map(str, at))}）不在角色表里：是有戏的人就加进角色表，"
+                           f"是尸体/物件/背景就不用管")
     must = sum(1 for s in story["shots"] if (s.get("key") or {}).get("priority") == "must")
     if bd and must > 0.35 * len(story["shots"]):
         add("warn", None, f"必保镜头 {must} 个，太多就等于没有重点")
