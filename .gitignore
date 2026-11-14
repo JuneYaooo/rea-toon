@@ -1,0 +1,12 @@
+work/
+.env
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.venv/
+*.pyc
+*.log
+# 本地的 agent 说明入口（内容在 AGENTS.md）
+CLAUDE.md
+# 测试只留在本地
+tests/
