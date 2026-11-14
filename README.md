@@ -5,9 +5,9 @@
   <img src="docs/brand/logo-dark.svg" width="380" alt="rea-toon">
 </picture>
 
-Break down any short drama with AI: rea-toon is a tool for learning from short dramas.
+Break down any short drama with AI: animated comic dramas, live-action and AI-generated.
 
-Why it went viral, how the script is written, how every shot is filmed: three views of one drama.
+A tool for learning from short dramas: why one went viral, how the script is written, how every shot is filmed.
 
 Every breakdown is also written as **[VIDEO.md](https://videomd.github.io/videomd/)**, an open format that agents read layer by layer.
 
