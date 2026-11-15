@@ -105,7 +105,11 @@ agent 会自己装好命令行工具，读懂拆解流程（[skills/rea-toon/SKI
 
 ## 社区
 
-欢迎来 [LINUX.DO](https://linux.do/) 交流使用体验。
+欢迎来 [LINUX.DO](https://linux.do/) 交流使用体验，也可以扫码加微信交流群：
+
+<p align="center">
+  <img src="../docs/wechat-group.jpg" width="260" alt="rea-toon 微信交流群二维码">
+</p>
 
 遇到问题或者有想法，开一个 [issue](https://github.com/JuneYaooo/rea-toon/issues)。
 

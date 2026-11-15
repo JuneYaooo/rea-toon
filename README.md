@@ -108,7 +108,11 @@ A model that can see images is required; a text-only model can't do it. The simp
 
 ## Community
 
-Come to [LINUX.DO](https://linux.do/) to share how you use it.
+Come to [LINUX.DO](https://linux.do/) to share how you use it, or scan to join the WeChat group:
+
+<p align="center">
+  <img src="docs/wechat-group.jpg" width="260" alt="QR code of the rea-toon WeChat group">
+</p>
 
 Problems or ideas: open an [issue](https://github.com/JuneYaooo/rea-toon/issues).
 
