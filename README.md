@@ -20,7 +20,7 @@ Every breakdown is also written as **[VIDEO.md](https://videomd.github.io/videom
 [![Built on rea-video](https://img.shields.io/badge/built%20on-rea--video-6644d8)](https://github.com/JuneYaooo/rea-video)
 [![License: Noncommercial](https://img.shields.io/badge/license-noncommercial-orange)](LICENSE)
 
-[![LINUX.DO](https://img.shields.io/badge/LINUX.DO-community-1a1a1a?style=for-the-badge)](https://linux.do/) [![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/dZj8D3GqWT) [![Follow on X](https://img.shields.io/badge/Follow%20%40yao__june12106-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/yao_june12106)
+[![LINUX.DO](https://img.shields.io/badge/LINUX.DO-community-1a1a1a?style=for-the-badge)](https://linux.do/) [![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/dZj8D3GqWT) [![WeChat group](https://img.shields.io/badge/WeChat%20group-07C160?style=for-the-badge&logo=wechat&logoColor=white)](i18n/README_zh.md#社区) [![Follow on X](https://img.shields.io/badge/Follow%20%40yao__june12106-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/yao_june12106)
 
 ⭐ *Help more people find rea-toon. Star this repo!*
 
@@ -108,11 +108,7 @@ A model that can see images is required; a text-only model can't do it. The simp
 
 ## Community
 
-Come to [LINUX.DO](https://linux.do/) to share how you use it, or scan to join the WeChat group:
-
-<p align="center">
-  <img src="docs/wechat-group.jpg" width="260" alt="QR code of the rea-toon WeChat group">
-</p>
+Come to [LINUX.DO](https://linux.do/) to share how you use it.
 
 Problems or ideas: open an [issue](https://github.com/JuneYaooo/rea-toon/issues).
 

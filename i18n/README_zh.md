@@ -20,7 +20,7 @@ AI 拆解学习短剧：rea-toon 是用来学习短剧的工具。
 [![Built on rea-video](https://img.shields.io/badge/built%20on-rea--video-6644d8)](https://github.com/JuneYaooo/rea-video)
 [![License: Noncommercial](https://img.shields.io/badge/license-%E9%9D%9E%E5%95%86%E7%94%A8-orange)](../LICENSE)
 
-[![LINUX.DO](https://img.shields.io/badge/LINUX.DO-%E7%A4%BE%E5%8C%BA-1a1a1a?style=for-the-badge)](https://linux.do/) [![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/dZj8D3GqWT) [![Follow on X](https://img.shields.io/badge/Follow%20%40yao__june12106-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/yao_june12106)
+[![LINUX.DO](https://img.shields.io/badge/LINUX.DO-%E7%A4%BE%E5%8C%BA-1a1a1a?style=for-the-badge)](https://linux.do/) [![Discord](https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/dZj8D3GqWT) [![微信交流群](https://img.shields.io/badge/%E5%BE%AE%E4%BF%A1%E4%BA%A4%E6%B5%81%E7%BE%A4-07C160?style=for-the-badge&logo=wechat&logoColor=white)](#社区) [![Follow on X](https://img.shields.io/badge/Follow%20%40yao__june12106-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/yao_june12106)
 
 ⭐ *觉得有用就点个 Star 吧，能让更多人看到它！*
 
@@ -105,13 +105,15 @@ agent 会自己装好命令行工具，读懂拆解流程（[skills/rea-toon/SKI
 
 ## 社区
 
-欢迎来 [LINUX.DO](https://linux.do/) 交流使用体验，也可以扫码加微信交流群：
-
-<p align="center">
-  <img src="../docs/wechat-group.jpg" width="260" alt="rea-toon 微信交流群二维码">
-</p>
+欢迎来 [LINUX.DO](https://linux.do/) 交流使用体验。
 
 遇到问题或者有想法，开一个 [issue](https://github.com/JuneYaooo/rea-toon/issues)。
+
+也欢迎加微信交流群：拆解时遇到的问题、看不懂的镜头、套路讨论和复用经验，都可以在群里交流、分享：
+
+<div align="center">
+<img src="../docs/wechat-group-qr.jpg" width="260" alt="rea-toon 微信交流群二维码">
+</div>
 
 ## 致谢
 
