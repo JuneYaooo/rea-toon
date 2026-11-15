@@ -27,7 +27,7 @@ Every breakdown is also written as **[VIDEO.md](https://videomd.github.io/videom
 <a href="docs/demo_en.mp4"><img src="docs/demo_en.gif" width="720" alt="Demo: the pages of a 10-episode drama after the breakdown (study, script, shot script)"></a>
 
 The pages of a 10-episode drama after the breakdown. Click for the full demo with sound (1 min).<br>
-<sub>Translated into English for this demo; rea-toon writes the pages in Chinese.</sub>
+<sub>rea-toon writes the breakdown in the language you talk to your agent in.</sub>
 
 </div>
 
@@ -50,7 +50,7 @@ Each breakdown gives you two outputs:
 - **Pages, for you**: open one `index.html`. It holds the study, the script and the shot script.
 - **[VIDEO.md](https://videomd.github.io/videomd/), for your AI**: `VIDEO.md` + `video/`, the same open format as [rea-video](https://github.com/JuneYaooo/rea-video). Ask your agent anything about the drama later, or hand it to other tools: they read this instead of watching the video again.
 
-> The pages and reports are in Chinese for now: rea-toon is made for Chinese short dramas.
+> **Your language.** The breakdown is written in the language you talk to your agent in: the summaries, per-shot notes, report, script actions and the pages' own headings. Dialogue and subtitles stay in the drama's original language. Page frames are built in for English and Chinese; for other languages the content is written in your language inside an English frame.
 
 ## What you get
 

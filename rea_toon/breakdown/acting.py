@@ -44,7 +44,7 @@ def performance(work: Path, story: dict, shot: dict, vlm: VLM | None = None, n: 
     prompt = PERFORMANCE_PROMPT.format(n=n, duration=dur, times="、".join(f"{t}s" for t in times),
                                        subtitles=subs, cast=cast or "（无）")
     try:
-        return vlm.ask_json(prompt, frames, max_tokens=4096)
+        return vlm.ask_json(prompt, frames, max_tokens=4096, prose=True)
     except Exception as exc:
         LOG.warning("shot %s 表演拆解失败：%s", shot["index"], exc)
         return {"error": str(exc)}
@@ -78,7 +78,7 @@ def contacts(story: dict, work: Path, vlm: VLM, workers: int = 6) -> int:
             frames.append(f)
         try:
             r = vlm.ask_json(CONTACT_PROMPT.format(index=s["index"], duration=s["duration"], times="、".join(f"{t}s" for t in times),
-                                                   actions=text(s)), frames, max_tokens=1024, timeout=120)
+                                                   actions=text(s)), frames, max_tokens=1024, timeout=120, prose=True)
         except Exception as exc:
             LOG.warning("第 %s 镜接触拆解失败：%s", s["index"], exc)
             return None
@@ -119,7 +119,7 @@ def expressions(story: dict, vlm: VLM) -> int:
             rows.append(f"{c['id']}（{c.get('role', '')}）：" + "；".join(seen))
     if not rows:
         return 0
-    r = vlm.ask_json(EXPRESSIONS_PROMPT.format(rows="\n".join(rows)), [], max_tokens=4096, timeout=180)
+    r = vlm.ask_json(EXPRESSIONS_PROMPT.format(rows="\n".join(rows)), [], max_tokens=4096, timeout=180, prose=True)
     by_id = {c["id"]: c for c in story["characters"]}
     n = 0
     for cid, items in (r.get("characters") or {}).items():

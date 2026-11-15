@@ -13,7 +13,10 @@ import re
 from pathlib import Path
 
 from . import layout
+from .lang import part as _part
 from .subtitles import MODE_CN, line_mode
+
+_ = _part("package")  # page words: rea_toon/i18n/en_package.py
 
 ROLES = ("hook", "setup", "conflict", "reversal", "reveal", "climax", "payoff", "cliffhanger", "reaction",
          "transition", "normal")
@@ -46,6 +49,15 @@ def prior_text(story: dict) -> str:
     return f"这是第 {p.get('ep')} 集。\n{p['recap']}" + (f"\n上一集结尾留的钩子：{p['hook']}" if p.get("hook") else "")
 
 
+def prior_view(story: dict) -> str:
+    """prior_text for the pages, in the page language (prior_text feeds prompts and stays as it is)."""
+    p = story.get("prior") or {}
+    if not p.get("recap"):
+        return _("（单集，或这是第一集：没有前情）")
+    return (_("这是第 {ep} 集。").format(ep=p.get("ep")) + "\n" + p["recap"]
+            + (_("\n上一集结尾留的钩子：{hook}").format(hook=p["hook"]) if p.get("hook") else ""))
+
+
 def lines_of(shot: dict) -> list[dict]:
     return [x for x in shot.get("subtitles") or [] if not x.get("card") and x.get("speaker") != "title"]
 
@@ -56,11 +68,18 @@ def said_tag(x: dict) -> str:
     return f"({tag})" if tag else ""
 
 
+def said_label(x: dict) -> str:
+    """said_tag for the pages, in the page language (said_tag feeds prompts and stays as it is)."""
+    tag = MODE_CN[line_mode(x)]
+    return f"({_(tag)})" if tag else ""
+
+
 def gap_line(g: dict) -> str:
-    """One information gap as a sentence: who knows, who does not, whether this episode opens it."""
-    who = lambda xs: "、".join(str(x) for x in xs) if isinstance(xs, list) else str(xs or "")
-    return (f"{g.get('what')}：{who(g.get('knows'))} 知道，{who(g.get('blind'))} 不知道；"
-            f"{'镜 ' + str(g['to']) + ' 揭开' if g.get('to') else '这一集没揭开'}。{g.get('play') or ''}")
+    """One information gap as a sentence, for the pages: who knows, who does not, whether this episode opens it."""
+    who = lambda xs: _("、").join(str(x) for x in xs) if isinstance(xs, list) else str(xs or "")
+    opened = _("镜 {to} 揭开").format(to=g["to"]) if g.get("to") else _("这一集没揭开")
+    return _("{what}：{knows} 知道，{blind} 不知道；{opened}。{play}").format(
+        what=g.get("what"), knows=who(g.get("knows")), blind=who(g.get("blind")), opened=opened, play=g.get("play") or "")
 
 
 def cast_lines(story: dict) -> str:
@@ -133,7 +152,8 @@ LOOK_PARTS = ("wear", "hair", "face", "props")
 
 
 def day_tag(sc: dict) -> str:
-    return (f" · 剧情日 {sc['day']}" if sc.get("day") else "") + (" · 回忆" if sc.get("flashback") else "")
+    """The story day and flashback mark of a scene, for the pages."""
+    return (_(" · 剧情日 {day}").format(day=sc["day"]) if sc.get("day") else "") + (_(" · 回忆") if sc.get("flashback") else "")
 
 
 def look_split(v) -> dict:
@@ -190,9 +210,17 @@ def look_in(story: dict, cid: str, index: int, dress: bool = False) -> str:
 
 
 def look_line(v) -> str:
+    """A look as one line, for the prompts (look_view is the same for the pages)."""
     p = look_split(v)
     return "，".join(f"{n}{p[k]}" for k, n in (("wear", ""), ("hair", "发型："), ("face", "脸上："), ("props", "道具："))
                     if p[k])
+
+
+def look_view(v) -> str:
+    """look_line in the page language."""
+    p = look_split(v)
+    return _("，").join(f"{n}{p[k]}" for k, n in (("wear", ""), ("hair", _("发型：")), ("face", _("脸上：")), ("props", _("道具：")))
+                       if p[k])
 
 
 # ---- lock: approval of a reviewed breakdown ----

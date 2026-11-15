@@ -3,9 +3,12 @@ No model calls; cheap to redo after any edit. lint errors block `lock`."""
 
 from __future__ import annotations
 
+from .lang import part as _part
 from .refine import identity_pairs
 from .story import differs, has_look, lines_of, look_in, look_parts, look_split, scene_of, story_day
 from .subtitles import NARRATOR, line_mode
+
+_ = _part("package")  # page words: rea_toon/i18n/en_package.py
 
 
 RISK_CN = {
@@ -147,52 +150,52 @@ def lint(story: dict) -> list[dict]:
     main = {c["id"] for c in story["characters"] if c.get("importance") != "extra" and "crowd" not in c["id"]}
     bd = story.get("breakdown") or {}
     if not bd:
-        add("error", None, "还没做深度拆解（rea-toon redo breakdown）")
+        add("error", None, _("还没做深度拆解（rea-toon redo breakdown）"))
     unknown: dict[str, list[int]] = {}  # ids a shot names that the cast does not have
     asked: set = set()
     for s in story["shots"]:
         a = s.get("analysis") or {}
         i = s["index"]
         if not a or a.get("error"):
-            add("error", i, f"逐镜拆解失败：{a.get('error', '没有结果')}")
+            add("error", i, _("逐镜拆解失败：{error}").format(error=a.get("error", _("没有结果"))))
             continue
         here = {c.get("id") for c in a.get("characters") or []}
         for x in lines_of(s):
             if x.get("unsure") and x.get("speaker") and (x.get("start"), x.get("text")) not in asked:
                 asked.add((x.get("start"), x.get("text")))  # a line across a cut sits in both shots: asked once
-                add("warn", i, f"台词「{x['text']}」的说话人拿不准（现在标的是 {x['speaker']}，看了图也定不下来）：对着原片确认，"
-                               f"改好后删掉这句的 unsure")
+                add("warn", i, _("台词「{line}」的说话人拿不准（现在标的是 {who}，看了图也定不下来）：对着原片确认，"
+                                 "改好后删掉这句的 unsure").format(line=x["text"], who=x["speaker"]))
             if not x.get("speaker"):
-                add("error", i, f"台词「{x['text']}」没有说话人")
+                add("error", i, _("台词「{line}」没有说话人").format(line=x["text"]))
             elif x["speaker"] not in ids | {NARRATOR}:
-                add("error", i, f"台词「{x['text']}」的说话人 {x['speaker']} 不在角色表里")
+                add("error", i, _("台词「{line}」的说话人 {who} 不在角色表里").format(line=x["text"], who=x["speaker"]))
             elif x.get("on_screen") and x["speaker"] not in here:
-                add("warn", i, f"台词「{x['text']}」标成 {x['speaker']} 在画面里说，但这一镜没标出 {x['speaker']}")
+                add("warn", i, _("台词「{line}」标成 {who} 在画面里说，但这一镜没标出 {who}").format(line=x["text"], who=x["speaker"]))
         for c in here - ids - {"crowd", None}:
             unknown.setdefault(c, []).append(i)
         perf = s.get("performance")
         if here & main and (not perf or perf.get("error")) and story.get("depth") != "fast":
-            add("error", i, "有主要角色但没有表演拆解（逐秒表情/口型）")
+            add("error", i, _("有主要角色但没有表演拆解（逐秒表情/口型）"))
         if s["duration"] > 15 and not story.get("cuts"):
-            add("warn", i, f"{s['duration']:.1f}s 超过 15 秒：用 analyze --cuts 切开")
+            add("warn", i, _("{secs:.1f}s 超过 15 秒：用 analyze --cuts 切开").format(secs=s["duration"]))
         if s.get("contacts_error"):
-            add("warn", i, "身体接触拆解失败：这一镜的接触时间没有，重跑 rea-toon redo breakdown")
+            add("warn", i, _("身体接触拆解失败：这一镜的接触时间没有，重跑 rea-toon redo breakdown"))
         for t in s.get("screen_text") or []:
             if t.get("kind") == "unknown":
-                add("warn", i, f"画面里的字「{t['text']}」没分出是场景文字还是花字（在 story.json 的 screen_text 里填 kind）")
+                add("warn", i, _("画面里的字「{text}」没分出是场景文字还是花字（在 story.json 的 screen_text 里填 kind）").format(text=t["text"]))
         if bd and (not s.get("key") or s["key"].get("missing")):
-            add("error", i, "没有看点拆解（role/priority/keep）")
+            add("error", i, _("没有看点拆解（role/priority/keep）"))
         elif bd and s["key"].get("priority") == "must" and not s["key"].get("function"):
-            add("warn", i, "必保镜头没有写剧情功能（这一镜做成了什么、观众什么感觉）")
+            add("warn", i, _("必保镜头没有写剧情功能（这一镜做成了什么、观众什么感觉）"))
         if bd:
             sc = scene_of(story, i)
             for c in sorted(here & main):
                 if sc and not look_in(story, c, i):
-                    add("warn", i, f"{c} 在第 {sc['id']} 场没有造型描述")
+                    add("warn", i, _("{who} 在第 {scene} 场没有造型描述").format(who=c, scene=sc["id"]))
     scenes = bd.get("scenes") or []
     for sc in scenes:
         if sc.get("error"):
-            add("error", None, f"第 {sc['id']} 场造型拆解失败：{sc['error']}")
+            add("error", None, _("第 {scene} 场造型拆解失败：{error}").format(scene=sc["id"], error=sc["error"]))
     # same story day, next scene with this person: an outfit that changes in between is either the story (a costume
     # change the scene shows) or a misread that would put two outfits on one person within the day
     last: dict[tuple[str, str], tuple[dict, str]] = {}
@@ -203,27 +206,28 @@ def lint(story: dict) -> list[dict]:
             start = look_split((sc.get("looks") or {}).get(cid))["wear"] if cid in (sc.get("looks") or {}) else ""
             prev = last.get((story_day(sc), cid))
             if prev and start and prev[1] and differs(start, prev[1]):
-                add("warn", sc["shots"][0], f"{cid} 在同一剧情日 {sc.get('day')} 里，第 {prev[0]['id']} 场结尾穿「{prev[1]}」，"
-                                            f"第 {sc['id']} 场开头穿「{start}」：确认是剧情里换了衣服，不是拆解看错")
+                add("warn", sc["shots"][0], _("{who} 在同一剧情日 {day} 里，第 {before} 场结尾穿「{was}」，"
+                                              "第 {scene} 场开头穿「{now}」：确认是剧情里换了衣服，不是拆解看错").format(
+                    who=cid, day=sc.get("day"), before=prev[0]["id"], was=prev[1], scene=sc["id"], now=start))
             end = look_parts(story, cid, sc["shots"][1]).get("wear", "")
             if end:
                 last[(story_day(sc), cid)] = (sc, end)
     for i, j, a, b in axis_flips(story):
-        add("warn", j, f"{a} 和 {b} 在镜{i}是{a}左{b}右，到镜{j}左右换了（同一场）：可能越轴，"
-                       f"可能是原片就这样拍，也可能是拆解看错了位置")
+        add("warn", j, _("{a} 和 {b} 在镜{i}是{a}左{b}右，到镜{j}左右换了（同一场）：可能越轴，"
+                         "可能是原片就这样拍，也可能是拆解看错了位置").format(a=a, b=b, i=i, j=j))
     chars = [c for c in story["characters"] if c.get("importance") != "extra" and "crowd" not in c["id"]]
     distinct = [sorted(x) for x in (story.get("refined") or {}).get("distinct") or []]
     for (a, b), clues in identity_pairs(story, chars).items():
         if sorted((a, b)) in distinct:  # a model already looked at both and said they are different people
             continue
-        add("warn", None, f"{a} 和 {b} 可能是同一个人（乔装/换装），确认后在 story.json 合并：{clues[0]}")
+        add("warn", None, _("{a} 和 {b} 可能是同一个人（乔装/换装），确认后在 story.json 合并：{clue}").format(a=a, b=b, clue=clues[0]))
     for c, at in sorted(unknown.items(), key=lambda kv: kv[1][0]):
-        add("warn", at[0], f"画面里的 {c}（镜{'、'.join(map(str, at))}）不在角色表里：是有戏的人就加进角色表，"
-                           f"是尸体/物件/背景就不用管")
+        add("warn", at[0], _("画面里的 {who}（镜{shots}）不在角色表里：是有戏的人就加进角色表，"
+                             "是尸体/物件/背景就不用管").format(who=c, shots=_("、").join(map(str, at))))
     if story.get("depth") == "fast":  # enough to read the drama; deepen adds the acting and contact passes
-        add("error", None, "快拆没做逐秒表演和身体接触拆解：只看拆解不用管；要补就跑 rea-toon deepen")
+        add("error", None, _("快拆没做逐秒表演和身体接触拆解：只看拆解不用管；要补就跑 rea-toon deepen"))
         out[-1]["for"] = "deepen"  # nothing to fix for someone who only reads the breakdown
     must = sum(1 for s in story["shots"] if (s.get("key") or {}).get("priority") == "must")
     if bd and must > 0.35 * len(story["shots"]):
-        add("warn", None, f"必保镜头 {must} 个，太多就等于没有重点")
+        add("warn", None, _("必保镜头 {n} 个，太多就等于没有重点").format(n=must))
     return out

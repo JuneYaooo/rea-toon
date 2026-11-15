@@ -7,7 +7,12 @@ producer studies in that kind of show, handed to the report prompt and shown in 
 
 from __future__ import annotations
 
+import re
+
+from .lang import part as _part
 from .subtitles import line_mode, unique_lines
+
+_ = _part("report")  # page words: rea_toon/i18n/en_report.py
 
 FORMATS = {
     "live_action": {
@@ -107,3 +112,32 @@ def format_of(story: dict, series: str | None = None) -> dict:
     else:
         fid, why = "ai_live", f"画风：{kind or '未知'}（默认按 AI 真人感短剧）"
     return {"id": fid, **FORMATS[fid], "why": why}
+
+
+# the reasons format_of gives, as patterns: report.json keeps the Chinese, a page shows it in the page language
+_WHY = (
+    (re.compile(r"^(\S+) 的台词是旁白，(\S+) 的时长是静图$"),
+     lambda m: _("{narr} 的台词是旁白，{still} 的时长是静图").format(narr=m[1], still=m[2])),
+    (re.compile(r"^(\S+) 的台词是旁白，画面是动的$"), lambda m: _("{narr} 的台词是旁白，画面是动的").format(narr=m[1])),
+    (re.compile(r"^(\S+) 的时长是静图或静图推拉$"), lambda m: _("{still} 的时长是静图或静图推拉").format(still=m[1])),
+    (re.compile(r"^画风：(.*)（默认按 AI 真人感短剧）$", re.S),
+     lambda m: _("画风：{kind}（默认按 AI 真人感短剧）").format(kind=_("未知") if m[1] == "未知" else m[1])),
+    (re.compile(r"^画风：(.*)$", re.S), lambda m: _("画风：{kind}").format(kind=m[1])),
+)
+
+
+def why_shown(why: str) -> str:
+    """The reason for a format, in the page language (the style is the model's words and stays as written)."""
+    why = str(why or "")
+    if why in ("story.json 里手动指定", "按整部剧定的类型"):
+        return {"story.json 里手动指定": _("story.json 里手动指定"), "按整部剧定的类型": _("按整部剧定的类型")}[why]
+    for pat, fmt in _WHY:
+        m = pat.match(why)
+        if m:
+            return fmt(m)
+    return why
+
+
+def shown(fmt: dict) -> dict:
+    """A format as a page shows it: name, reason and lens in the page language (prompts use format_of as it is)."""
+    return {**fmt, "cn": _(fmt.get("cn", "")), "why": why_shown(fmt.get("why", "")), "lens": [_(x) for x in fmt.get("lens") or []]}

@@ -16,7 +16,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import layout
+from . import lang, layout
 from .env import load_env
 
 REDO = {
@@ -85,6 +85,13 @@ def cmd_analyze(a):
     if a.source:
         from .ingest import ingest
         ingest(a.source, w, title=a.title, long=a.long)
+    if a.lang:
+        if layout.series_of(w):
+            raise ValueError(f"{w} 是整部剧的一集，语言跟整部剧走：rea-toon series {w.parent} --lang {a.lang}")
+        if not layout.data(w, "source.json").is_file():
+            raise ValueError("还没有导入视频：加 --source <本地视频>")
+        lang.keep(w, a.lang)
+    lang.activate(lang.of(w))
     cuts = [float(x) for x in a.cuts.replace("，", ",").split(",") if x.strip()] if a.cuts else None
     out = episode(w, use_vlm=not a.no_vlm, workers=a.workers, cuts=cuts, full=a.full)
     _cast_summary(out["story"], w)
@@ -147,6 +154,9 @@ def cmd_series(a):
         print(f"共 {len(ser['episodes'])} 集")
     elif a.title:
         ser = series.load(root); ser["title"] = a.title; series.save(root, ser)
+    if a.lang:
+        ser = series.load(root); ser["lang"] = lang.norm(a.lang); series.save(root, ser)
+    lang.activate(lang.of(root))
     if not series.load(root)["episodes"]:
         raise SystemExit("还没有集：rea-toon series WORK --source 第1集.mp4 第2集.mp4 …（或一个放着各集视频的文件夹）")
     if not a.only_series:
@@ -180,6 +190,8 @@ def main(argv=None):
     p.add_argument("--no-vlm", action="store_true"); p.add_argument("--workers", type=int, default=6)
     p.add_argument("--cuts", help="强制在这些时间点（秒）切镜头，如 6.65,9.92：溶解/穿门/遮挡转场切不出来、或一镜超过 15s 时用")
     p.add_argument("--full", action="store_true", help="逐镜单独调用 + 逐秒表演拆解（贵约 5 倍）；默认快拆，之后也可以 deepen 补")
+    p.add_argument("--lang", help="整理出来的东西用什么语言写：用户说什么语言就传什么（zh 中文、en English、ja 日本語…；默认 zh）。"
+                   "台词和字幕保持原片的语言；记在 data/source.json，之后重跑不用再给，换语言会按新语言重拆")
     p.add_argument("--long", action="store_true", help="片源超过 20 分钟也当一集拆（默认拒绝：那多半是合集，要先切成一集一个文件）")
     p.set_defaults(fn=cmd_analyze)
 
@@ -188,6 +200,8 @@ def main(argv=None):
     p.add_argument("--source", nargs="+", help="追加这些集：本地视频文件，或一个放着各集视频的文件夹（按文件名里的数字排序）")
     p.add_argument("--title", help="剧名")
     p.add_argument("--first", type=int, help="只导入前 N 集（合集、文件夹里集数很多时先拆几集看看）")
+    p.add_argument("--lang", help="整理出来的东西用什么语言写：用户说什么语言就传什么（zh 中文、en English、ja 日本語…；默认 zh）。"
+                   "整部剧每一集都用它；记在 series.json，换语言会按新语言重拆")
     p.add_argument("--only-series", action="store_true", help="不补拆单集，只重做跨集部分")
     p.add_argument("--full", action="store_true", help="每集都做完整拆解（逐镜单独调用 + 逐秒表演），默认快拆")
     p.add_argument("--no-vlm", action="store_true"); p.add_argument("--workers", type=int, default=6)
@@ -222,6 +236,8 @@ def main(argv=None):
     if a.backend:
         os.environ["REA_TOON_BACKEND"] = a.backend
     from .vlm import NeedAgent, pending
+    if getattr(a, "work", None):
+        lang.activate(lang.of(_work(a.work)))  # the pages this command writes (analyze / series may change it first)
     try:
         a.fn(a)
     except (RuntimeError, ValueError, FileNotFoundError) as exc:  # a message for the user, not a traceback

@@ -47,7 +47,7 @@ def staging(story: dict, work: Path, vlm: VLM, workers: int = 6) -> int:
         desc = "；".join(f"{c['id']}（{c.get('where', '')}）" for c in people) or "（没有看得清的角色）"
         try:
             r = vlm.ask_json(STAGING_PROMPT.format(index=s["index"], size=a.get("shot_size", ""), people=desc),
-                             [work / s["frames"]["mid"]], max_tokens=1536, timeout=120)
+                             [work / s["frames"]["mid"]], max_tokens=1536, timeout=120, prose=True)
         except Exception as exc:
             LOG.warning("第 %s 镜机位/视线拆解失败：%s", s["index"], exc)
             return None

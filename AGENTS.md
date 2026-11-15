@@ -70,6 +70,11 @@
 
 - `cli.py` 命令：analyze / series / script / deepen / lock / redo <步骤>（`redo pages` 只重出页面和拆片包，不调模型）/ ingest
 - `media.py` 分析用的 ffmpeg/OpenCV 和联系表；所有拆解提示词在 `prompts.py`
+- `lang.py`：整理出来的东西用用户的语言写（`--lang`，单集记在 `data/source.json`，整部剧记在 `series.json`，各集跟整部剧走）。
+  两半：答案给人读的模型调用加 `prose=True`，非中文时提示词末尾追加语言要求（中文不加，已有目录的答案缓存不受影响）；
+  页面、拆片包、lint 里给人看的字用 `_("中文原文")` 包起来，英文在 `rea_toon/i18n/en_*.py`（`T = {中文: 英文}`），
+  模板用具名占位符 `_("第 {ep} 集").format(ep=…)`，在出页面时调用、不在 import 时。进提示词的字和存进 story.json 被代码比对的值（爽/憋、特写…）不包，显示时再翻。
+  台词、字幕不翻译。新加页面文字要同时加英文条目。
 - `vlm.py`：谁来看图作答。默认 agent（题写进 `<work>/analysis/agent/`，命令以退出码 3 停下，你看图写 `<key>.answer.json` 后原样重跑，
   步骤见 `skills/rea-toon/SKILL.md`）；用户配了 `REA_TOON_VLM_*` 或加 `--backend api` 才调接口模型。
   未答的题用 `NeedAgent`（BaseException）中断，各阶段的 `except Exception` 不要改成会吞掉它的写法；

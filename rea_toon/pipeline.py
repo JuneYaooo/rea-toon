@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 
 from . import breakdown as bd
+from . import lang as lang_mod
 from . import layout
 from . import perceive as perceive_mod
 from . import refine as refine_mod
@@ -63,6 +64,7 @@ def perceive(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[floa
         layout.put(layout.prev(work, "story.json"), layout.story(work).read_text(encoding="utf-8"))
         LOG.info("重新感知：原来的 story.json 存在 data/story.prev.json")
     story = perceive_mod.perceive(work, use_vlm=use_vlm, workers=workers, cuts=cuts, prior=prior, full=full)
+    story["lang"] = lang_mod.of(work)  # what the model wrote it in; another --lang later redoes the episode
     if use_vlm:
         refine_mod.refine(story, work, for_work(work))
     _save(work, story)
@@ -171,7 +173,14 @@ def done(work: Path, use_vlm: bool = True) -> bool:
     if not layout.story(work).is_file():
         return False
     story = load(work)
+    if use_vlm and _relang(work, story):
+        return False
     return _perceived(story) and (not use_vlm or bool((story.get("breakdown") or {}).get("beats")) and _report_fresh(work))
+
+
+def _relang(work: Path, story: dict | None) -> bool:
+    """The story was written in another language than the one asked for now (--lang changed): every stage again."""
+    return bool(story) and lang_mod.norm(story.get("lang")) != lang_mod.of(work)
 
 
 def _asked_again(story: dict, cuts: list[float] | None, full: bool) -> bool:
@@ -187,6 +196,10 @@ def episode(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[float
     anything); a series uses it for an episode that was broken down without an earlier one's context.
     Returns {"story", "report"}."""
     story = load(work) if layout.story(work).is_file() else None
+    if use_vlm and _relang(work, story):
+        LOG.info("换了语言（%s → %s）：每一步按新语言重做（原来的 story.json 存在 data/story.prev.json）",
+                 lang_mod.norm(story.get("lang")), lang_mod.of(work))
+        resume = False
     if not resume or not _perceived(story) or _asked_again(story, cuts, full):
         story = perceive(work, use_vlm=use_vlm, workers=workers, cuts=cuts, prior=prior, full=full)
     else:

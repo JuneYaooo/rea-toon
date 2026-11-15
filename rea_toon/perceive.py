@@ -65,7 +65,7 @@ def shot_batches(story: dict, work: Path, vlm: VLM, cast_text: str, one, batch: 
             prompt += SERIES_FACES
         try:
             r = vlm.ask_json(prompt, [shot_strip(work, s) for s in group] + ([ref] if ref else []),
-                             max_tokens=2500 * len(group), timeout=400)
+                             max_tokens=2500 * len(group), timeout=400, prose=True)
         except Exception as exc:
             LOG.warning("镜 %s–%s 批量拆解失败，逐镜重试：%s", group[0]["index"], group[-1]["index"], exc)
             return {}
@@ -176,7 +176,7 @@ def perceive(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[floa
         if prior and prior.get("cast"):
             prompt += SERIES_CONTEXT.format(ep=prior["ep"], recap=prior["recap"], cast=prior["cast"], faces=SERIES_FACES if ref else "")
             story["prior"] = {k: v for k, v in prior.items() if k != "faces"}
-        cast = vlm.ask_json(prompt, sheets + ([ref] if ref else []))
+        cast = vlm.ask_json(prompt, sheets + ([ref] if ref else []), prose=True)
         story.update(summary=cast.get("summary", ""), style=cast.get("style", ""), palette=cast.get("palette", ""),
                      characters=cast.get("characters", []))
         for c in story["characters"]:  # a returning character keeps the role (and the spelling of the name) already settled
@@ -194,7 +194,7 @@ def perceive(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[floa
                                         end=s["end"], duration=s["duration"],
                                         subtitle=" / ".join(x["text"] for x in s["subtitles"]) or "（无）")
             try:
-                return vlm.ask_json(prompt, [work / s["frames"][k] for k in ("first", "mid", "last")], max_tokens=4096)
+                return vlm.ask_json(prompt, [work / s["frames"][k] for k in ("first", "mid", "last")], max_tokens=4096, prose=True)
             except Exception as exc:
                 LOG.warning("shot %s VLM 失败：%s", s["index"], exc)
                 return {"error": str(exc)}

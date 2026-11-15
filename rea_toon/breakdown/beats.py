@@ -19,7 +19,7 @@ def beats(story: dict, work: Path, vlm: VLM, sheets: list[Path]) -> int:
                            + "；".join(f"{k}={look_line(v)}" for k, v in (sc.get("looks") or {}).items()) for sc in bd["scenes"])
     r = vlm.ask_json(BEATS_PROMPT.format(summary=story.get("summary", ""), prior=prior_text(story), cast=cast_lines(story),
                                          scenes=scene_text, table=shot_table(story, emotion=True)),
-                     sheets, max_tokens=28000, timeout=400)
+                     sheets, max_tokens=28000, timeout=400, prose=True)
     feel = lambda x: x.get("feel") if x.get("feel") in FEELS else ""
     bd["beats"] = [{**b, "feel": feel(b)} for b in r.get("beats") or [] if b.get("type")]
     bd["info_gaps"] = [g for g in r.get("info_gaps") or [] if isinstance(g, dict) and g.get("what")]

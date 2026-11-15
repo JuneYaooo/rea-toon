@@ -63,7 +63,7 @@ def scene_looks(story: dict, work: Path, sc: dict, vlm: VLM) -> dict:
     prompt = SCENE_LOOKS_PROMPT.format(sid=sc["id"], a=sc["shots"][0], b=sc["shots"][1], location=sc.get("location", ""),
                                        time=sc.get("time", ""), pics=pics, cast=cast, table=shot_table(story, shots))
     try:
-        r = vlm.ask_json(prompt, [p for _, p in frames], max_tokens=4096, timeout=300)
+        r = vlm.ask_json(prompt, [p for _, p in frames], max_tokens=4096, timeout=300, prose=True)
     except Exception as exc:  # leave the scene without looks: lint reports it
         LOG.warning("第 %s 场造型拆解失败：%s", sc["id"], exc)
         return {"looks": {}, "changes": [], "error": str(exc)}
@@ -77,7 +77,7 @@ def scene_looks(story: dict, work: Path, sc: dict, vlm: VLM) -> dict:
 def scenes(story: dict, work: Path, vlm: VLM, sheets: list[Path], workers: int = 6) -> int:
     """Style bible + scenes over the contact sheets, then each scene's looks. Starts story["breakdown"] afresh."""
     r = vlm.ask_json(SCENES_PROMPT.format(summary=story.get("summary", ""), cast=cast_lines(story), table=shot_table(story)),
-                     sheets, max_tokens=12000, timeout=400)
+                     sheets, max_tokens=12000, timeout=400, prose=True)
     found = _fix_scenes(r.get("scenes") or [], len(story["shots"]))
     story["breakdown"] = {"version": 1, "style_bible": r.get("style_bible") or {}, "scenes": found}
     LOG.info("深度拆解：%d 场的造型 …", len(found))

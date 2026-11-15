@@ -8,7 +8,10 @@ import json
 import re
 from pathlib import Path
 
-from . import layout
+from . import lang, layout
+from .lang import part as _part
+
+_ = _part("pages")  # page words: rea_toon/i18n/en_pages.py
 
 CSS = """
 :root{--bg:#fafaf8;--card:#fff;--fg:#1d1d1b;--muted:#6b6b66;--line:#e4e3de;--must:#c2410c;--high:#a16207;--err:#b91c1c;--warn:#a16207;--chip:#f1f0eb;--series:#2b6ef2;--grid:#ecebe6}
@@ -83,7 +86,8 @@ def esc(x) -> str:
 
 
 def page(title: str, body: list[str], tail: str = "") -> str:
-    return ("<!doctype html><html lang=zh><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+    return (f"<!doctype html><html lang={lang.html(lang.current())}><head>"
+            "<meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
             f"<title>{esc(title)}</title><style>{CSS}</style></head><body><main>" + "\n".join(body) + "</main>" + TIP_JS + tail + "</body></html>")
 
 
@@ -120,10 +124,10 @@ def ref(shots, text: str | None = None) -> str:
     return f"<a class=ref data-shot={a}{'' if a == b else f' data-to={b}'}>{esc(label)}</a>"
 
 
-_PLAYER = """<div id=pl hidden><div class=plh><b id=plt></b><span><a id=plp title="上一镜">‹</a><a id=pln title="下一镜">›</a><a id=plx title="关闭">×</a></span></div>
+_PLAYER = """<div id=pl hidden><div class=plh><b id=plt></b><span><a id=plp title="__PREV__">‹</a><a id=pln title="__NEXT__">›</a><a id=plx title="__CLOSE__">×</a></span></div>
 <video id=plv playsinline controls preload=none></video><img id=pli alt=""><div id=plc></div></div>
 <script>(function(){var S=__SHOTS__,V=__VIDEO__,by={},d=document,cur=null,end=0,dead={};S.forEach(function(s){by[s[0]]=s});
-var re=/镜\\s?(\\d+)(?!\\d|\\.\\d)(?:\\s?[–~-]\\s?(\\d+))?/g,root=d.querySelector('main'),w=d.createTreeWalker(root,NodeFilter.SHOW_TEXT,null),ns=[],n;
+var re=/__SHOTRE__\\s?(\\d+)(?!\\d|\\.\\d)(?:\\s?[–~-]\\s?(\\d+))?/g,root=d.querySelector('main'),w=d.createTreeWalker(root,NodeFilter.SHOW_TEXT,null),ns=[],n;
 if(S.length)while(n=w.nextNode()){re.lastIndex=0;if(re.test(n.nodeValue)&&!n.parentNode.closest('a,button,script,style,svg,code'))ns.push(n)}
 ns.forEach(function(n){var f=d.createDocumentFragment(),t=n.nodeValue,i=0,m;re.lastIndex=0;
  while(m=re.exec(t)){if(!by[+m[1]])continue;f.appendChild(d.createTextNode(t.slice(i,m.index)));var a=d.createElement('a');a.className='ref';
@@ -139,7 +143,7 @@ function play(o){now=o;end=o.b;pl.hidden=false;d.getElementById('plt').textConte
   else if(v.readyState>0)go();else v.addEventListener('loadedmetadata',go,{once:true})}
  else{v.pause();v.style.display='none';im.style.display='';im.src=o.img||''}}
 function shot(a,b){var s=by[a],e=by[b]||s;if(!s)return;cur={a:a,b:e[0]};
- play({v:V,a:s[1],b:e[2],title:'镜 '+a+(e[0]!=a?'–'+e[0]:''),cap:s[4],img:s[3]})}
+ play({v:V,a:s[1],b:e[2],title:__SHOT__+a+(e[0]!=a?'–'+e[0]:''),cap:s[4],img:s[3]})}
 function clip(x){cur={el:x};play({v:x.getAttribute('data-v'),a:+x.getAttribute('data-a'),b:+x.getAttribute('data-b'),
  title:x.getAttribute('data-title')||'',cap:x.getAttribute('data-cap'),img:x.getAttribute('src')})}
 v.addEventListener('timeupdate',function(){if(end&&v.currentTime>=end){v.pause();end=0}});
@@ -173,13 +177,27 @@ def player(story: dict | None, video: str | None = None) -> str:
         rows.append([s["index"], round(float(s["start"]), 2), round(float(s["end"]), 2), up((s.get("frames") or {}).get("mid")),
                      (what + ("　「" + talk + "」" if talk else ""))[:160]])
     data = json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
-    return _PLAYER.replace("__SHOTS__", data).replace("__VIDEO__", json.dumps(video))
+    # a shot is named "镜 45" on a Chinese page; an English page (and what the model wrote in English) says "shot 45"
+    shot_re = "镜" if lang.ui() == "zh" else "(?:镜|[Ss]hots?)"
+    words = (_PLAYER.replace("__PREV__", esc(_("上一镜"))).replace("__NEXT__", esc(_("下一镜"))).replace("__CLOSE__", esc(_("关闭")))
+             .replace("__SHOTRE__", shot_re).replace("__SHOT__+", "'" + _("镜 ").replace("\\", "\\\\").replace("'", "\\'") + "'+"))
+    return words.replace("__SHOTS__", data).replace("__VIDEO__", json.dumps(video))
 
 
 # ---- links between the pages of a series ----
 
 _NAV = re.compile(r"<nav class=sitenav>.*?</nav>(<div class=sitenav-sp></div>)?", re.S)
-_DUP = re.compile(r"<a href='storyboard\.html'>分镜脚本 →</a>|<a href='script\.html'>← 剧本</a>")  # the site's bar has them
+
+
+def _dup() -> re.Pattern:
+    """The links between the script and the shot script, in Chinese or as the page language writes them: the site's
+    bar has them."""
+    board = {"分镜脚本 →", _("分镜脚本 →")}
+    script = {"← 剧本", _("← 剧本")}
+    return re.compile("|".join([f"<a href='storyboard\\.html'>{re.escape(t)}</a>" for t in sorted(board)]
+                               + [f"<a href='script\\.html'>{re.escape(t)}</a>" for t in sorted(script)]))
+
+
 _EP = ("report.html", "breakdown.html")
 P = layout.PAGES
 
@@ -198,7 +216,7 @@ _INNER = ("<nav class=sitenav><style>.sitenav{display:none;font:13px/1 -apple-sy
           "if(k){e.preventDefault();parent.postMessage({rtGo:+k[1]},'*')}});"
           "})()</script></nav>")
 
-_SITE = """<!doctype html><html lang=zh><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
+_SITE = """<!doctype html><html lang=__LANG__><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>
 <title>__TITLE__ · rea-toon</title><style>
 :root{--bg:#fafaf8;--bar:#fff;--fg:#1d1d1b;--muted:#77766f;--line:#e4e3de;--chip:#f1f0eb;--on:#2b6ef2;--soft:#2b6ef21c}
 @media (prefers-color-scheme:dark){:root{--bg:#161615;--bar:#1c1c1a;--fg:#ecebe6;--muted:#a3a29b;--line:#34332f;--chip:#2a2926;--on:#7aa5ff;--soft:#7aa5ff2b}}
@@ -224,15 +242,15 @@ h1{font-size:15px;font-weight:600;margin:0;white-space:nowrap;overflow:hidden;te
 iframe{flex:1;width:100%;border:0;background:var(--bg)}
 @media (max-width:640px){.slash,h1,.brand small{display:none}.tabs{gap:16px}}
 </style></head><body>
-<header><div class="row top"><a class=brand href="https://github.com/JuneYaooo/rea-toon" target=_blank rel=noopener title="rea-toon：AI 拆解学习短剧">
-<svg viewBox="8 8 68 70" aria-hidden=true fill=none><path d="M27 16h34a8 8 0 0 1 8 8v30" stroke="var(--on)" stroke-width=6 stroke-linecap=round /><path d="M20 27h39a8 8 0 0 1 8 8v18a8 8 0 0 1-8 8H28a8 8 0 0 1-8-8V27Z" fill="var(--on)"/><path d="M20 50v24l17-14H20Z" fill="var(--on)"/><g fill="var(--bar)"><rect x=32 y=37 width=7 height=14 rx=3.5 /><rect x=50 y=37 width=7 height=14 rx=3.5 /></g></svg><span><b>rea-toon<i>.</i></b><small>AI 拆解学习短剧</small></span></a>
+<header><div class="row top"><a class=brand href="https://github.com/JuneYaooo/rea-toon" target=_blank rel=noopener title="__TAGTITLE__">
+<svg viewBox="8 8 68 70" aria-hidden=true fill=none><path d="M27 16h34a8 8 0 0 1 8 8v30" stroke="var(--on)" stroke-width=6 stroke-linecap=round /><path d="M20 27h39a8 8 0 0 1 8 8v18a8 8 0 0 1-8 8H28a8 8 0 0 1-8-8V27Z" fill="var(--on)"/><path d="M20 50v24l17-14H20Z" fill="var(--on)"/><g fill="var(--bar)"><rect x=32 y=37 width=7 height=14 rx=3.5 /><rect x=50 y=37 width=7 height=14 rx=3.5 /></g></svg><span><b>rea-toon<i>.</i></b><small>__TAG__</small></span></a>
 <span class=slash>/</span><h1 title="__TITLE__">__TITLE__</h1>
 <nav class=tabs id=views></nav>
-<a class=gh href="https://github.com/JuneYaooo/rea-toon" target=_blank rel=noopener title="GitHub：JuneYaooo/rea-toon" aria-label=GitHub><svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a></div>
+<a class=gh href="https://github.com/JuneYaooo/rea-toon" target=_blank rel=noopener title="__GHTITLE__" aria-label=GitHub><svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a></div>
 <div class=hr id=hr></div><div class="row sub" id=sub><div class=eps id=eps></div><div class=more id=more></div></div></header>
-<iframe id=f title="内容"></iframe>
+<iframe id=f title="__CONTENT__"></iframe>
 <script>
-var EPS=__EPS__,HAS=__HAS__,P="__PAGES__/",VIEWS=[["breakdown","学习分析"],["script","剧本"],["board","分镜拆解"]];
+var EPS=__EPS__,HAS=__HAS__,P="__PAGES__/",VIEWS=[["breakdown",__V1__],["script",__V2__],["board",__V3__]];
 var st={ep:0,view:"breakdown"};
 function src(){var e=EPS.filter(function(x){return x.n==st.ep})[0];
  if(!EPS.length&&st.view!="script"&&st.view!="board")return P+(HAS.report?"report.html":"breakdown.html");
@@ -244,12 +262,12 @@ function btn(text,on,fn,tip){var b=document.createElement("button");b.textConten
 function draw(){var v=document.getElementById("views"),p=document.getElementById("eps"),m=document.getElementById("more");
  v.innerHTML="";VIEWS.forEach(function(x){if(x[0]=="script"&&!HAS.script)return;if(x[0]=="board"&&!HAS.board&&!st.ep)return;
   v.appendChild(btn(x[1],st.view==x[0]||(x[0]=="board"&&st.view=="audit"),function(){go(st.ep,x[0])}))});
- p.innerHTML="";if(EPS.length)p.appendChild(btn("全剧",st.ep==0,function(){go(0,st.view=="audit"?"breakdown":st.view)}));
+ p.innerHTML="";if(EPS.length)p.appendChild(btn(__ALL__,st.ep==0,function(){go(0,st.view=="audit"?"breakdown":st.view)}));
  if(EPS.length)p.appendChild(document.createElement("span"));
- EPS.forEach(function(e){p.appendChild(btn(e.n,st.ep==e.n,function(){go(e.n,st.view)},"第 "+e.n+" 集"))});
+ EPS.forEach(function(e){p.appendChild(btn(e.n,st.ep==e.n,function(){go(e.n,st.view)},__EPN__))});
  m.innerHTML="";function link(t,fn,href){var a=document.createElement("a");a.textContent=t;if(href){a.href=href;a.target="_blank"}else a.onclick=fn;m.appendChild(a)}
- if(!st.ep&&st.view=="script"&&HAS.script_pdf)link("下载 PDF",null,P+"script.pdf");
- if(!st.ep&&st.view=="board"&&HAS.board_pdf)link("下载 PDF",null,P+"storyboard.pdf");
+ if(!st.ep&&st.view=="script"&&HAS.script_pdf)link(__PDF__,null,P+"script.pdf");
+ if(!st.ep&&st.view=="board"&&HAS.board_pdf)link(__PDF__,null,P+"storyboard.pdf");
  document.getElementById("sub").style.display=document.getElementById("hr").style.display=EPS.length||m.children.length?"":"none";
  var on=p.querySelector(".on");if(on&&on.scrollIntoView)on.scrollIntoView({block:"nearest",inline:"nearest"})}
 function go(ep,view,quiet){st={ep:ep,view:view};if(view=="audit")st.view=HAS.board?"board":ep?"audit":"breakdown";
@@ -317,7 +335,7 @@ def stamp(file: Path) -> None:
         root, home, ep = at
         view = {"script.html": "script", "storyboard.html": "board", "breakdown.html": "audit"}.get(file.name, "breakdown")
         bar = _INNER % (esc(f"{home}{layout.SITE}#{ep or 'all'}/{view}"), esc(_series_title(root)))
-        text = _DUP.sub("", text)
+        text = _dup().sub("", text)
         m = re.search(r"<body[^>]*>", text)
         text = text[:m.end()] + bar + text[m.end():] if m else bar + text
     file.write_text(text, encoding="utf-8")
@@ -333,7 +351,16 @@ def site(root: Path) -> Path | None:
     has = {k: layout.page(root, f).is_file() for k, f in (("report", "report.html"), ("script", "script.html"), ("board", "storyboard.html"),
                                                           ("script_pdf", "script.pdf"), ("board_pdf", "storyboard.pdf"))}
     out = layout.site(root)
-    out.write_text(_SITE.replace("__TITLE__", esc(_series_title(root))).replace("__PAGES__", P)
+    js = lambda t: json.dumps(t, ensure_ascii=False)
+    a, b = _("第 {n} 集").split("{n}", 1)
+    words = {"__LANG__": lang.html(lang.current()), "__TAGTITLE__": esc(_("rea-toon：AI 拆解学习短剧")),
+             "__TAG__": esc(_("AI 拆解学习短剧")), "__GHTITLE__": esc(_("GitHub：JuneYaooo/rea-toon")), "__CONTENT__": esc(_("内容")),
+             "__V1__": js(_("学习分析")), "__V2__": js(_("剧本")), "__V3__": js(_("分镜拆解")), "__ALL__": js(_("全剧")),
+             "__EPN__": "+".join(x for x in (js(a) if a else "", "e.n", js(b) if b else "") if x), "__PDF__": js(_("下载 PDF"))}
+    text = _SITE
+    for k, v in words.items():
+        text = text.replace(k, v)
+    out.write_text(text.replace("__TITLE__", esc(_series_title(root))).replace("__PAGES__", P)
                    .replace("__EPS__", json.dumps([{"n": int(e.name[2:]), "dir": e.name} for e in eps]))
                    .replace("__HAS__", json.dumps(has)), encoding="utf-8")
     return out
@@ -358,7 +385,7 @@ def heatmap(rows: list[tuple[str, list[float]]], cols: list[str], unit: str = ""
             if not v:
                 cells.append("<td></td>")
                 continue
-            tip = note(i, j, v) if note else f"{label} · {cols[j]}：{v:g}{unit}"
+            tip = note(i, j, v) if note else _("{label} · {col}：{v:g}{unit}").format(label=label, col=cols[j], v=v, unit=unit)
             # 12%..62% of the series hue over the surface: the ink on top stays readable in both themes
             cells.append(f"<td style='background:color-mix(in srgb,var(--series) {12 + 50 * v / top:.0f}%,var(--card))' "
                          f"data-tip='{esc(tip)}'>{v:g}</td>")

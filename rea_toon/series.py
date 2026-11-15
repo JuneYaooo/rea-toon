@@ -27,14 +27,17 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from . import layout
+from . import lang, layout
 from .genre import FORMATS, format_of
+from .lang import part as _part
 from .media import face_sheet, font_path
 from .page import esc, fold, heatmap, link_up, meter, page, point, statline
 from .prompts import SERIES_CAST_PROMPT, SERIES_PROMPT
 from .report import _paras, metrics, span
 from .story import lock_state, names_of, portraits
-from .vlm import VLM
+from .vlm import VLM, for_work
+
+_ = _part("pages")  # page words: rea_toon/i18n/en_pages.py
 
 LOG = logging.getLogger(__name__)
 VIDEO = (".mp4", ".mov", ".m4v", ".webm", ".mkv", ".flv")
@@ -309,7 +312,7 @@ def unify(root: Path, ser: dict, vlm: VLM | None) -> list[dict]:
                      for x in asked)
     sheets = portrait_sheets(asked, layout.analysis(root))
     try:
-        r = vlm.ask_json(SERIES_CAST_PROMPT.format(rows=rows), sheets, max_tokens=8000, timeout=300)
+        r = vlm.ask_json(SERIES_CAST_PROMPT.format(rows=rows), sheets, max_tokens=8000, timeout=300, prose=True)
     except Exception as exc:
         LOG.warning("跨集角色合并失败，先按 id 合并：%s", exc)
         return unify(root, ser, None)
@@ -425,7 +428,7 @@ def _align_reports(root: Path, ser: dict, use_vlm: bool) -> None:
 
 def build(root: Path, use_vlm: bool = True) -> dict:
     ser = load(root)
-    vlm = VLM(cache_dir=layout.analysis(root, "vlm_cache")) if use_vlm else None
+    vlm = for_work(root) if use_vlm else None
     fid = settle_format(root, ser)
     if fid:
         ser["format"] = fid
@@ -457,7 +460,7 @@ def build(root: Path, use_vlm: bool = True) -> dict:
         try:
             ser["read"] = vlm.ask_json(SERIES_PROMPT.format(title=ser["title"], n=len(done), format=fmt, cast=cast_txt,
                                                             episodes=ep_txt, metrics=met, gaps=gaps or "（无）"),
-                                       [], max_tokens=12000, timeout=400)
+                                       [], max_tokens=12000, timeout=400, prose=True)
             ser.pop("read_error", None)
         except Exception as exc:
             LOG.warning("跨集拆解失败：%s", exc)
@@ -500,7 +503,16 @@ def _names(xs) -> str:
 
 
 def _likes(x) -> str:
+    if x is not None and x >= 10000 and lang.ui() != "zh":
+        return f"{x / 1000:.0f}k"
     return "—" if x is None else f"{x / 10000:.1f}万" if x >= 10000 else str(x)
+
+
+def _kinds(x) -> str:
+    """The emotional beats of an episode by kind, as a hover title (the dict as it is on a Chinese page)."""
+    if isinstance(x, dict) and lang.ui() != "zh":
+        return _("，").join(f"{_(k)} {v}" for k, v in x.items())
+    return str(x or "")
 
 
 def ledger_rows(rows: list[dict]) -> list[dict]:
@@ -528,49 +540,53 @@ def _ledger_text(rows: list[dict]) -> str:
 def _context_lines(ser: dict) -> list[str]:
     """What breaks the chain of episodes: ones skipped, not broken down yet, or broken down without earlier context."""
     rows = ser.get("rows") or []
-    L = [f"- 第 {x['ep']} 集拆的时候没带上第 {'、'.join(map(str, x['context_missing']))} 集的前情"
-         + ("（已锁定，没自动重拆）" if x.get("locked") else "（重跑 rea-toon series 会带着前情重拆）") for x in rows if x.get("context_missing")]
+    L = ["- " + _("第 {ep} 集拆的时候没带上第 {eps} 集的前情").format(ep=x['ep'], eps=_('、').join(map(str, x['context_missing'])))
+         + (_("（已锁定，没自动重拆）") if x.get("locked") else _("（重跑 rea-toon series 会带着前情重拆）")) for x in rows if x.get("context_missing")]
     skipped = [e["ep"] for e in ser.get("episodes") or [] if e.get("skip")]
     if skipped:
-        L.append(f"- 跳过了第 {'、'.join(map(str, skipped))} 集（series.json 里标了 skip），后面的集没有它的前情")
+        L.append("- " + _("跳过了第 {eps} 集（series.json 里标了 skip），后面的集没有它的前情").format(eps=_('、').join(map(str, skipped))))
     missing = [x["ep"] for x in rows if x.get("missing") and x["ep"] not in skipped]
     if missing:
-        L.append(f"- 还没拆完：第 {span(missing)} 集")
-    return (["## 跨集关联要注意", ""] + L + [""]) if L else []
+        L.append("- " + _("还没拆完：第 {eps} 集").format(eps=span(missing)))
+    return (["## " + _("跨集关联要注意"), ""] + L + [""]) if L else []
 
 
 def to_md(ser: dict) -> str:
     r, rows = ser.get("read") or {}, [x for x in ser.get("rows") or [] if not x.get("missing")]
-    L = [f"# 整部剧拆解：{ser['title']}", "", f"{len(rows)} 集，共 {sum(x['duration'] for x in rows) / 60:.1f} 分钟", ""]
-    for k, name in (("logline", "一句话卖点"), ("main_conflict", "主冲突"), ("engine", "情绪打法")):
+    L = ["# " + _("整部剧拆解：{title}").format(title=ser['title']), "",
+         _("{n} 集，共 {min:.1f} 分钟").format(n=len(rows), min=sum(x['duration'] for x in rows) / 60), ""]
+    for k, name in (("logline", _("一句话卖点")), ("main_conflict", _("主冲突")), ("engine", _("情绪打法"))):
         if r.get(k):
-            L += [f"**{name}**：{r[k]}", ""]
+            L += [f"**{name}**{_('：')}{r[k]}", ""]
     L += _context_lines(ser)
-    L += ["## 逐集", "", "| 集 | 时长 | 镜头 | 情绪节点 | 第一个节点 | 点赞 | 结尾钩子 | 剧情 |", "|---|---|---|---|---|---|---|---|"]
+    L += ["## " + _("逐集"), "", _("| 集 | 时长 | 镜头 | 情绪节点 | 第一个节点 | 点赞 | 结尾钩子 | 剧情 |"), "|---|---|---|---|---|---|---|---|"]
     L += [f"| {x['ep']} | {x['duration']:.0f}s | {x['shots']} | {x['peaks']} | {x['first_peak'] if x['first_peak'] is not None else '—'} | "
-          f"{_likes(x.get('likes'))} | {x['ending'] if x['cliffhanger'] else '无'} | {x['summary']} |" for x in rows] + [""]
+          f"{_likes(x.get('likes'))} | {x['ending'] if x['cliffhanger'] else _('无')} | {x['summary']} |" for x in rows] + [""]
     led = ledger_rows(rows)
     if led:
-        L += ["## 情绪账（跨集）", "", "| 集 | 主打 | 节点 | 平均空档 | 最长空档 | 憋 | 放了没有 | 片尾欠 | 没揭开的信息差 |", "|---|---|---|---|---|---|---|---|---|"]
-        L += [f"| {x['ep']} | {x['top']} | {x['peaks']} | {x['avg_gap'] if x['avg_gap'] is not None else '—'}s | {x['longest_gap']}s | {x['pressed']}s | "
-              f"{'放（之前攒了 ' + str(x['debt_before']) + 's）' if x['paid'] else '没放'} | {x['owed']}s | {'；'.join(x['open_gaps'])} |" for x in led] + [""]
-    L += ["## 角色", ""] + [f"- **{c['id']}** {c['name']} {c['role']}：第 {span(c['episodes'])} 集，出镜 {c['seconds']}s（{'、'.join(c['members'])}）"
-                          for c in ser.get("characters") or []] + [""]
+        L += ["## " + _("情绪账（跨集）"), "", _("| 集 | 主打 | 节点 | 平均空档 | 最长空档 | 憋 | 放了没有 | 片尾欠 | 没揭开的信息差 |"), "|---|---|---|---|---|---|---|---|---|"]
+        L += [f"| {x['ep']} | {_(x['top'])} | {x['peaks']} | {x['avg_gap'] if x['avg_gap'] is not None else '—'}s | {x['longest_gap']}s | {x['pressed']}s | "
+              f"{_('放（之前攒了 {sec}s）').format(sec=x['debt_before']) if x['paid'] else _('没放')} | {x['owed']}s | {_('；').join(x['open_gaps'])} |" for x in led] + [""]
+    L += ["## " + _("角色"), ""] + [f"- **{c['id']}** {c['name']} {c['role']}" + _("：第 {eps} 集，出镜 {sec}s（{members}）").format(
+        eps=span(c['episodes']), sec=c['seconds'], members=_('、').join(c['members'])) for c in ser.get("characters") or []] + [""]
     if r.get("arcs"):
-        L += ["## 人物弧光", ""] + [f"- **{a.get('id')}**：{a.get('arc')}；" + "；".join(f"第{t.get('ep')}集 {t.get('what')}" for t in a.get("turns") or [])
-                                for a in r["arcs"]] + [""]
+        L += ["## " + _("人物弧光"), ""] + [f"- **{a.get('id')}**{_('：')}{a.get('arc')}{_('；')}"
+                                          + _("；").join(_("第{ep}集 {what}").format(ep=t.get('ep'), what=t.get('what')) for t in a.get("turns") or [])
+                                          for a in r["arcs"]] + [""]
     if r.get("threads"):
-        L += ["## 伏笔和回收", ""] + [f"- {t.get('what')}：第 {t.get('planted')} 集埋，" + (f"第 {t['paid']} 集收" if t.get("paid") else "**还没收**")
-                                 + f"。{t.get('note', '')}" for t in r["threads"]] + [""]
+        L += ["## " + _("伏笔和回收"), ""] + [f"- {t.get('what')}" + _("：第 {ep} 集埋，").format(ep=t.get('planted'))
+                                          + (_("第 {ep} 集收").format(ep=t['paid']) if t.get("paid") else _("**还没收**"))
+                                          + f"{_('。')}{t.get('note', '')}" for t in r["threads"]] + [""]
     if r.get("links"):
-        L += ["## 集与集的钩子", ""] + [f"- 第 {x.get('ep')} 集结尾：{x.get('end_hook')} → {x.get('picked_up')}" for x in r["links"]] + [""]
+        L += ["## " + _("集与集的钩子"), ""] + [_("- 第 {ep} 集结尾：{hook} → {next}").format(ep=x.get('ep'), hook=x.get('end_hook'), next=x.get('picked_up'))
+                                           for x in r["links"]] + [""]
     if r.get("paywall"):
-        L += ["## 付费卡点", ""] + [f"- 第 {x.get('ep')} 集：{x.get('why')}" for x in r["paywall"]] + [""]
-    for k, name in (("pacing", "跨集节奏"), ("heat", "点赞和结构"), ("tropes", "反复使用的套路"), ("remix", "复用方向")):
+        L += ["## " + _("付费卡点"), ""] + [_("- 第 {ep} 集：{why}").format(ep=x.get('ep'), why=x.get('why')) for x in r["paywall"]] + [""]
+    for k, name in (("pacing", _("跨集节奏")), ("heat", _("点赞和结构")), ("tropes", _("反复使用的套路")), ("remix", _("复用方向"))):
         if r.get(k):
             L += [f"## {name}", ""] + [f"- {point(x)}" for x in r[k]] + [""]
     if r.get("formula"):
-        L += ["## 打法", ""] + [f"- **{x.get('stage')}**：{x.get('what')}" for x in r["formula"]] + [""]
+        L += ["## " + _("打法"), ""] + [f"- **{x.get('stage')}**{_('：')}{x.get('what')}" for x in r["formula"]] + [""]
     return "\n".join(L) + "\n"
 
 
@@ -584,48 +600,49 @@ def to_html(ser: dict) -> str:
     total = sum(x["duration"] for x in rows)
     ul = lambda xs: "<ul>" + "".join(f"<li>{esc(point(x))}</li>" for x in xs) + "</ul>"
     B = [f"<h1>{esc(ser['title'])}</h1>",
-         f"<p><span class=state>{esc(rows[0]['format'] if rows else '')}</span> <span class=muted>{len(rows)} 集"
-         + (f" · 还有 {len(allrows) - len(rows)} 集没拆完" if len(allrows) > len(rows) else "") + "</span></p>"]
+         f"<p><span class=state>{esc(_(rows[0]['format']) if rows else '')}</span> <span class=muted>" + _("{n} 集").format(n=len(rows))
+         + (_(" · 还有 {n} 集没拆完").format(n=len(allrows) - len(rows)) if len(allrows) > len(rows) else "") + "</span></p>"]
     if r.get("logline"):
         B.append(f"<p class=lead>{esc(r['logline'])}</p>")
     if r.get("main_conflict"):
-        B.append(f"<p><b>主冲突</b>：{esc(r['main_conflict'])}</p>")
+        B.append(f"<p><b>{_('主冲突')}</b>{_('：')}{esc(r['main_conflict'])}</p>")
     warn = _context_lines(ser)[2:-1]
     if warn:
         B.append("<p class=warn>" + "<br>".join(esc(x[2:]) for x in warn) + "</p>")
     if ser.get("read_error"):
-        B.append(f"<p class=err>跨集解读失败（只有数据部分）：{esc(ser['read_error'])}；重跑 rea-toon series</p>")
-    B.append(statline([("集", len(rows)), ("分钟", f"{total / 60:.1f}"), ("平均每集", f"{total / max(1, len(rows)):.0f}s"),
-                       ("集有结尾钩子", f"{sum(1 for x in rows if x['cliffhanger'])}/{len(rows)}"),
-                       ("个情绪节点/集", f"{sum(x['peaks'] for x in rows) / max(1, len(rows)):.1f}")]))
+        B.append("<p class=err>" + _("跨集解读失败（只有数据部分）：{error}；重跑 rea-toon series").format(error=esc(ser['read_error'])) + "</p>")
+    B.append(statline([(_("集"), len(rows)), (_("分钟"), f"{total / 60:.1f}"), (_("平均每集"), f"{total / max(1, len(rows)):.0f}s"),
+                       (_("集有结尾钩子"), f"{sum(1 for x in rows if x['cliffhanger'])}/{len(rows)}"),
+                       (_("个情绪节点/集"), f"{sum(x['peaks'] for x in rows) / max(1, len(rows)):.1f}")]))
 
     # ---- how it is played ----
     if r.get("engine"):
-        B += ["<h2>情绪打法</h2>", _paras(r["engine"])]
+        B += [f"<h2>{_('情绪打法')}</h2>", _paras(r["engine"])]
     if r.get("formula"):
-        B.append("<h2>打法</h2><div class=tw><table><tr><th>阶段</th><th>打法</th></tr>"
+        B.append(f"<h2>{_('打法')}</h2><div class=tw><table><tr><th>{_('阶段')}</th><th>{_('打法')}</th></tr>"
                  + "".join(f"<tr><td class=n><b>{esc(x.get('stage'))}</b></td><td>{esc(x.get('what'))}</td></tr>" for x in r["formula"])
                  + "</table></div>")
-    two = [(name, r[k]) for k, name in (("tropes", "反复使用的套路"), ("remix", "复用方向")) if r.get(k)]
+    two = [(name, r[k]) for k, name in (("tropes", _("反复使用的套路")), ("remix", _("复用方向"))) if r.get(k)]
     if two:
         B.append(f"<div class={'two' if len(two) == 2 else ''}>" + "".join(f"<div><h2>{n}</h2>{ul(xs)}</div>" for n, xs in two) + "</div>")
 
     # ---- the episodes: one table, the node count drawn in its own column ----
-    B.append("<h2>逐集</h2>")
+    B.append(f"<h2>{_('逐集')}</h2>")
     hooked = bool(r.get("links"))  # the hooks get their own table (how each one is picked up): not twice
     first = lambda t: re.split(r"(?<=[。！？])", str(t or ""))[0]
     liked = any(x.get("likes") for x in rows)  # a video handed over as a file has no platform numbers: no column for it
     top = max((x["peaks"] for x in rows), default=0)
-    B.append("<div class=tw><table><tr><th></th><th>时长</th><th title='观众被打到的时刻：爽、虐、甜、笑、惊、燃'>情绪节点</th><th>第一个</th>" + ("<th>点赞</th>" if liked else "")
-             + ("" if hooked else "<th>结尾钩子</th>") + "<th>剧情</th></tr>"
-             + "".join(f"<tr><td class=n><a href='../{esc(x['dir'])}/pages/report.html'>第 {x['ep']} 集</a></td><td class=n>{x['duration']:.0f}s</td>"
-                       f"<td class=n title='{esc(x.get('node_kinds') or '')}'>{meter(x['peaks'], top, str(x['peaks']))}</td>"
+    B.append(f"<div class=tw><table><tr><th></th><th>{_('时长')}</th><th title='{esc(_('观众被打到的时刻：爽、虐、甜、笑、惊、燃'))}'>{_('情绪节点')}</th>"
+             f"<th>{_('第一个')}</th>" + (f"<th>{_('点赞')}</th>" if liked else "")
+             + ("" if hooked else f"<th>{_('结尾钩子')}</th>") + f"<th>{_('剧情')}</th></tr>"
+             + "".join(f"<tr><td class=n><a href='../{esc(x['dir'])}/pages/report.html'>{_('第 {ep} 集').format(ep=x['ep'])}</a></td><td class=n>{x['duration']:.0f}s</td>"
+                       f"<td class=n title='{esc(_kinds(x.get('node_kinds')))}'>{meter(x['peaks'], top, str(x['peaks']))}</td>"
                        f"<td class=n>{'—' if x['first_peak'] is None else str(x['first_peak']) + 's'}</td>"
                        + (f"<td class=n>{_likes(x.get('likes'))}</td>" if liked else "")
-                       + ("" if hooked else f"<td>{esc(x['ending']) if x['cliffhanger'] else '<span class=warn>没有</span>'}</td>")
+                       + ("" if hooked else f"<td>{esc(x['ending']) if x['cliffhanger'] else '<span class=warn>' + _('没有') + '</span>'}</td>")
                        + f"<td title='{esc(x['summary'])}'>{esc(first(x['summary']))}</td></tr>"
                        if not x.get("missing") else
-                       f"<tr><td>{x['ep']}</td><td colspan=6 class=muted>还没拆</td></tr>" for x in allrows)
+                       f"<tr><td>{x['ep']}</td><td colspan=6 class=muted>{_('还没拆')}</td></tr>" for x in allrows)
              + "</table></div>")
 
     # ---- what backs it up: one line each ----
@@ -633,20 +650,21 @@ def to_html(ser: dict) -> str:
     led = ledger_rows(rows)
     if led:
         kinds = [k for k in ("爽", "燃", "甜", "笑", "虐", "惊", "憋", "悬") if any(x["feels"].get(k) for x in led)]
-        E = ["<p class=muted>每集各种情绪占了多少秒，颜色越深占得越多。爽、燃、甜、笑、虐、惊是打到观众的，憋、悬是在攒"
-             "</p>",
-             heatmap([(f"第 {x['ep']} 集", [x["feels"].get(k, 0) for k in kinds]) for x in led], kinds, "s",
-                     lambda i, j, v: f"第 {led[i]['ep']} 集 · {kinds[j]} {v:g} 秒，占这一集的 "
-                                     f"{v / max(1e-9, sum(led[i]['feels'].values())):.0%}（这一集主打{led[i]['top']}）")]
+        E = ["<p class=muted>" + _("每集各种情绪占了多少秒，颜色越深占得越多。爽、燃、甜、笑、虐、惊是打到观众的，憋、悬是在攒")
+             + "</p>",
+             heatmap([(_("第 {ep} 集").format(ep=x['ep']), [x["feels"].get(k, 0) for k in kinds]) for x in led], [_(k) for k in kinds], "s",
+                     lambda i, j, v: _("第 {ep} 集 · {feel} {v:g} 秒，占这一集的 {share:.0%}（这一集主打{top}）").format(
+                         ep=led[i]['ep'], feel=_(kinds[j]), v=v, share=v / max(1e-9, sum(led[i]['feels'].values())), top=_(led[i]['top'])))]
         owed = [x for x in led if x["owed"]]
         if owed:
-            E.append("<p class=muted>憋到片尾没放、留给后面的：" + "；".join(f"第 {x['ep']} 集 {x['owed']}s" for x in owed) + "</p>")
+            E.append("<p class=muted>" + _("憋到片尾没放、留给后面的：") + _("；").join(_("第 {ep} 集 {sec}s").format(ep=x['ep'], sec=x['owed']) for x in owed) + "</p>")
         if not r.get("threads"):  # the read's own table of threads says it better; without one, list what is still hidden
             still = list(dict.fromkeys(g for x in led[-1:] for g in x["open_gaps"]))
             if still:
-                E.append("<p class=muted>到最后一集还没揭开的信息差</p><ul>" + "".join(f"<li>{esc(g)}</li>" for g in still) + "</ul>")
+                E.append(f"<p class=muted>{_('到最后一集还没揭开的信息差')}</p><ul>" + "".join(f"<li>{esc(g)}</li>" for g in still) + "</ul>")
         tops = Counter(x["top"] for x in led if x["top"]).most_common(3)
-        F.append(fold("情绪账（跨集）", "主打 " + "、".join(f"{k}（{n} 集）" for k, n in tops) if tops else "每集各种情绪占多少秒", "".join(E)))
+        F.append(fold(_("情绪账（跨集）"), _("主打 ") + _("、").join(_("{feel}（{n} 集）").format(feel=_(k), n=n) for k, n in tops) if tops
+                      else _("每集各种情绪占多少秒"), "".join(E)))
     cast = ser.get("characters") or []
     called = {c["id"]: c.get("name") or c["id"] for c in cast}
     C = ""
@@ -655,35 +673,39 @@ def to_html(ser: dict) -> str:
         sec = lambda c, x: round(sum(on.get((x["ep"], m.split(":", 1)[1]), 0) for m in c.get("members") or []
                                      if m.split(":", 1)[0] == f"E{x['ep']}"), 1)
         shown = cast[:12]
-        C += ("<p class=muted>每个角色在每一集出镜多少秒，颜色越深戏份越重；空格是这一集没出场。名字后面是全剧合计</p>"
+        C += (f"<p class=muted>{_('每个角色在每一集出镜多少秒，颜色越深戏份越重；空格是这一集没出场。名字后面是全剧合计')}</p>"
               + heatmap([(f"{esc(c['name'] or c['id'])} <span class=muted>{c['seconds']:.0f}s</span>", [sec(c, x) for x in rows]) for c in shown],
-                        [f"第 {x['ep']} 集" for x in rows], "s",
-                        lambda i, j, v: f"{shown[i]['name'] or shown[i]['id']}（{shown[i]['role']}）· 第 {rows[j]['ep']} 集出镜 {v:g} 秒，"
-                                        f"占这一集的 {v / max(1e-9, rows[j]['duration']):.0%}"))
+                        [_("第 {ep} 集").format(ep=x['ep']) for x in rows], "s",
+                        lambda i, j, v: _("{who}（{role}）· 第 {ep} 集出镜 {v:g} 秒，占这一集的 {share:.0%}").format(
+                            who=shown[i]['name'] or shown[i]['id'], role=shown[i]['role'], ep=rows[j]['ep'], v=v,
+                            share=v / max(1e-9, rows[j]['duration']))))
     if r.get("arcs"):
-        C += ("<h3>人物弧光</h3><ul>" + "".join(
-            f"<li><b>{esc(called.get(a.get('id'), a.get('id')))}</b>：{esc(a.get('arc'))}<br><span class=muted>"
-            + esc("；".join(f"第{t.get('ep')}集 {t.get('what')}" for t in a.get("turns") or [])) + "</span></li>" for a in r["arcs"]) + "</ul>")
-    F.append(fold("角色和人物弧光", "、".join(str(c.get("name") or c["id"]) for c in cast[:5]) + (" 等" if len(cast) > 5 else ""), C))
+        C += (f"<h3>{_('人物弧光')}</h3><ul>" + "".join(
+            f"<li><b>{esc(called.get(a.get('id'), a.get('id')))}</b>{_('：')}{esc(a.get('arc'))}<br><span class=muted>"
+            + esc(_("；").join(_("第{ep}集 {what}").format(ep=t.get('ep'), what=t.get('what')) for t in a.get("turns") or [])) + "</span></li>"
+            for a in r["arcs"]) + "</ul>")
+    F.append(fold(_("角色和人物弧光"), _("、").join(str(c.get("name") or c["id"]) for c in cast[:5]) + (_(" 等") if len(cast) > 5 else ""), C))
     if r.get("threads"):
         open_ = sum(1 for t in r["threads"] if not t.get("paid"))
-        F.append(fold("伏笔和回收", f"{len(r['threads'])} 条" + (f" · {open_} 条还没收" if open_ else " · 都收了"),
-                      "<div class=tw><table><tr><th>伏笔/悬念</th><th>埋</th><th>收</th><th>怎么埋、怎么收</th></tr>"
-                      + "".join(f"<tr><td>{esc(t.get('what'))}</td><td class=n>第 {esc(t.get('planted'))} 集</td>"
-                                f"<td class=n>{'第 ' + esc(t['paid']) + ' 集' if t.get('paid') else '<span class=warn>还没收</span>'}</td>"
+        F.append(fold(_("伏笔和回收"), _("{n} 条").format(n=len(r['threads'])) + (_(" · {n} 条还没收").format(n=open_) if open_ else _(" · 都收了")),
+                      f"<div class=tw><table><tr><th>{_('伏笔/悬念')}</th><th>{_('埋')}</th><th>{_('收')}</th><th>{_('怎么埋、怎么收')}</th></tr>"
+                      + "".join(f"<tr><td>{esc(t.get('what'))}</td><td class=n>{_('第 {ep} 集').format(ep=esc(t.get('planted')))}</td>"
+                                f"<td class=n>{_('第 {ep} 集').format(ep=esc(t['paid'])) if t.get('paid') else '<span class=warn>' + _('还没收') + '</span>'}</td>"
                                 f"<td>{esc(t.get('note'))}</td></tr>" for t in r["threads"]) + "</table></div>"))
     K = ""
     if r.get("links"):
-        K += ("<div class=tw><table><tr><th>集</th><th>结尾留的钩子</th><th>下一集怎么接</th></tr>"
+        K += (f"<div class=tw><table><tr><th>{_('集')}</th><th>{_('结尾留的钩子')}</th><th>{_('下一集怎么接')}</th></tr>"
               + "".join(f"<tr><td class=n>{esc(x.get('ep'))}</td><td>{esc(x.get('end_hook'))}</td><td>{esc(x.get('picked_up'))}</td></tr>"
                         for x in r["links"]) + "</table></div>")
     if r.get("paywall"):
-        K += "<h3>付费卡点</h3><ul>" + "".join(f"<li><b>第 {esc(x.get('ep'))} 集</b>：{esc(x.get('why'))}</li>" for x in r["paywall"]) + "</ul>"
-    F.append(fold("集尾钩子和付费卡点" if r.get("links") else "付费卡点",
-                  "每集结尾留什么、下一集怎么接" + (f" · 卡点在第 {'、'.join(str(x.get('ep')) for x in r['paywall'])} 集" if r.get("paywall") else ""), K))
-    N = "".join(f"<h3>{name}</h3>{ul(r[k])}" for k, name in (("pacing", "跨集节奏"), ("heat", "点赞和结构")) if r.get(k) and (k != "heat" or liked))
-    F.append(fold("跨集节奏" + ("和点赞" if r.get("heat") and liked else ""), "哪几集快、哪几集慢，热度跟着什么走", N))
+        K += (f"<h3>{_('付费卡点')}</h3><ul>" + "".join(f"<li><b>{_('第 {ep} 集').format(ep=esc(x.get('ep')))}</b>{_('：')}{esc(x.get('why'))}</li>"
+                                                     for x in r["paywall"]) + "</ul>")
+    F.append(fold(_("集尾钩子和付费卡点") if r.get("links") else _("付费卡点"),
+                  _("每集结尾留什么、下一集怎么接") + (_(" · 卡点在第 {eps} 集").format(eps=_('、').join(str(x.get('ep')) for x in r['paywall']))
+                                                if r.get("paywall") else ""), K))
+    N = "".join(f"<h3>{name}</h3>{ul(r[k])}" for k, name in (("pacing", _("跨集节奏")), ("heat", _("点赞和结构"))) if r.get(k) and (k != "heat" or liked))
+    F.append(fold(_("跨集节奏") + (_("和点赞") if r.get("heat") and liked else ""), _("哪几集快、哪几集慢，热度跟着什么走"), N))
     F = [x for x in F if x]
     if F:
-        B.append("<div class=more><p class=muted>依据和细节，点开看</p>" + "".join(F) + "</div>")
-    return page(f"整部剧拆解 {ser['title']}", B)
+        B.append(f"<div class=more><p class=muted>{_('依据和细节，点开看')}</p>" + "".join(F) + "</div>")
+    return page(_("整部剧拆解 {title}").format(title=ser['title']), B)

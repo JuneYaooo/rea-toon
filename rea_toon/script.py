@@ -25,13 +25,16 @@ from pathlib import Path
 
 from PIL import Image
 
-from . import layout
+from . import lang, layout
 from .breakdown.staging import ANGLE_CN
 from .checks import _side
 from .media import faces, run
 from .page import esc, page, player, site, stamp
+from .lang import part as _part
 from .story import ROLE_CN, lines_of, load, name_in
 from .subtitles import NARRATOR, line_mode, similar_text, unique_lines
+
+_ = _part("script")  # page words: rea_toon/i18n/en_script.py
 
 LOG = logging.getLogger(__name__)
 IMPORTANCE_CN = {"lead": "主角", "supporting": "配角", "support": "配角", "extra": "龙套"}
@@ -384,8 +387,8 @@ def _sfx(ep: dict) -> list[tuple[float, str]]:
         # an editor drops a sound on a sticker / 花字 / label as it pops in; a hit at a subtitle is mostly the voice
         if e.get("t") is None or not (on in SFX_ON or float(e.get("strength") or 0) >= 6):
             continue
-        what = SFX_CN.get(e.get("type"), e.get("type") or "音效")
-        out.append((float(e["t"]), what + (f"（{SFX_ON[on]}）" if on in SFX_ON else "")))
+        what = _(SFX_CN.get(e.get("type"), e.get("type") or "音效"))
+        out.append((float(e["t"]), _("{what}（{on}）").format(what=what, on=_(SFX_ON[on])) if on in SFX_ON else what))
     return out
 
 
@@ -586,7 +589,7 @@ def polish(ep: dict, blocks: list[dict], extras: dict[str, str], name, vlm=None)
         body.append("")
     ex = "\n".join(f"- {cid}：{d}" for cid, d in extras.items()) or "（没有）"
     res = vlm.ask_json(SCRIPT_POLISH_PROMPT.format(extras=ex, summary=ep["story"].get("summary") or "（未知）",
-                                                   body="\n".join(body)), [], max_tokens=16000)
+                                                   body="\n".join(body)), [], max_tokens=16000, prose=True)
     if not isinstance(res, dict):
         return 0
     by_no = {b["no"]: b for b in blocks}
@@ -701,7 +704,23 @@ def _sec(t: float) -> str:
 
 
 def _heading(b: dict) -> str:
-    return "　".join(x for x in (b["no"], b["time"], b["place"], b["where"], "（回忆）" if b["flashback"] else "") if x)
+    if lang.ui() == "zh":
+        return "　".join(x for x in (b["no"], b["time"], b["place"], b["where"], "（回忆）" if b["flashback"] else "") if x)
+    # screenplay order in English: 1-2  INT. KITCHEN – NIGHT (FLASHBACK); time and place are kept as 日/夜 内/外
+    head = " ".join(x for x in (_(b["place"]) if b["place"] else "", b["where"]) if x)
+    if b["time"]:
+        head = f"{head} – {_(b['time'])}" if head else _(b["time"])
+    return "  ".join(x for x in (b["no"], head, _("（回忆）") if b["flashback"] else "") if x)
+
+
+def _who(w: str) -> str:
+    """A speaker's name as shown: the narrator in the page language, a character's name as it is."""
+    return _("旁白") if w == "旁白" else w
+
+
+def _tagged(who: str, tag: str) -> str:
+    """容遇（OS） / Rong (V.O.): a speaker with the screenplay tag kept in rows (OS, 内心OS), in the page language."""
+    return _("{who}（{tag}）").format(who=who, tag=_(tag)) if tag else who
 
 
 def build(root: Path, punct: bool = True) -> dict:
@@ -760,34 +779,36 @@ def build(root: Path, punct: bool = True) -> dict:
 
 
 def _role_line(c: dict) -> str:
-    return " · ".join(x for x in (IMPORTANCE_CN.get(c.get("importance"), c.get("importance") or ""),
-                                  f"出场 {len(c.get('episodes') or [1])} 集", f"{c['shots']} 镜") if x)
+    return " · ".join(x for x in (_(IMPORTANCE_CN.get(c.get("importance"), c.get("importance") or "")),
+                                  _("出场 {n} 集").format(n=len(c.get('episodes') or [1])),
+                                  _("{n} 镜").format(n=c['shots'])) if x)
 
 
 def _line_text(r: dict) -> tuple[str, str]:
     """("容遇（OS）", "（生气）这死孩子……") for a screenplay line."""
-    who = r["who"] + (f"（{r['tag']}）" if r["tag"] else "")
-    return who, (f"（{r['mood']}）" if r.get("mood") else "") + r["text"]
+    who = _tagged(_who(r["who"]), r["tag"])
+    return who, (_("（{mood}）").format(mood=r["mood"]) if r.get("mood") else "") + r["text"]
 
 
 # ---- the screenplay: script.md / script.html / script.pdf ----
 
 def to_md(sc: dict) -> str:
-    L = [f"# {sc['title']}", "", "## 人物", ""]
-    L += [f"- **{c['label']}**：{c.get('role', '')}" + (f"（配音样本 {c['voice']['src']}）" if c.get("voice") else "") for c in sc["characters"]]
+    L = [f"# {sc['title']}", "", "## " + _("人物"), ""]
+    L += [_("- **{name}**：{role}").format(name=c['label'], role=c.get('role', ''))
+          + (_("（配音样本 {src}）").format(src=c['voice']['src']) if c.get("voice") else "") for c in sc["characters"]]
     L.append("")
     for e in sc["episodes"]:
-        L += [f"## 第 {e['ep']} 集", "", f"梗概：{e['summary']}", ""]
+        L += ["## " + _("第 {ep} 集").format(ep=e['ep']), "", _("梗概：{text}").format(text=e['summary']), ""]
         for b in e["scenes"]:
-            L += [f"### {_heading(b)}", "", f"人物：{'、'.join(b['people']) or '无'}", ""]
+            L += [f"### {_heading(b)}", "", _("人物：{people}").format(people=_("、").join(map(_who, b['people'])) or _("无")), ""]
             for r in b["rows"]:
                 if r["kind"] == "action":
-                    L.append(f"△ {r['text']}")
+                    L.append(_("△ {text}").format(text=r['text']))
                 elif r["kind"] == "card":
-                    L.append(f"【字幕】{r['text']}")
+                    L.append(_("【字幕】{text}").format(text=r['text']))
                 else:
                     who, text = _line_text(r)
-                    L.append(f"{who}：{text}")
+                    L.append(_("{who}：{text}").format(who=who, text=text))
                 L.append("")
     return "\n".join(L) + "\n"
 
@@ -821,39 +842,42 @@ def _voice_html(c: dict, full: bool = False) -> str:
     v = c.get("voice")
     if not v:
         return ""
-    said = "".join(f"<span>第 {x['ep']} 集「{esc(x['text'])}」</span>" for x in v["lines"])
+    said = "".join("<span>" + _("第 {ep} 集「{text}」").format(ep=x['ep'], text=esc(x['text'])) + "</span>" for x in v["lines"])
     tip = esc(" / ".join(x["text"] for x in v["lines"]))
-    return (f"<span class=vo title='配音样本（原片人声轨）：{tip}'><audio controls preload=none src='{esc(v['src'])}'></audio>"
-            + (f"<span class=said>配音样本 {v['seconds']:g}s：{said}</span>" if full else "") + "</span>")
+    return ("<span class=vo title='" + _("配音样本（原片人声轨）：{tip}").format(tip=tip)
+            + f"'><audio controls preload=none src='{esc(v['src'])}'></audio>"
+            + ("<span class=said>" + _("配音样本 {s:g}s：{said}").format(s=v['seconds'], said=said) + "</span>" if full else "")
+            + "</span>")
 
 
 def script_html(sc: dict) -> str:
     B = [f"<style>{SCRIPT_CSS}{PRINT}</style>", f"<div class=title><h1>{esc(sc['title'])}</h1>"
-         f"<p class=muted>剧本 · 共 {len(sc['episodes'])} 集</p></div>",
-         "<p class=toc>" + "".join(f"<a href='#ep{e['ep']}'>第 {e['ep']} 集</a>" for e in sc["episodes"])
-         + "<a href='storyboard.html'>分镜脚本 →</a></p>", "<h2>人物</h2><div class=people>"]
+         "<p class=muted>" + _("剧本 · 共 {n} 集").format(n=len(sc['episodes'])) + "</p></div>",
+         "<p class=toc>" + "".join(f"<a href='#ep{e['ep']}'>" + _("第 {ep} 集").format(ep=e['ep']) + "</a>" for e in sc["episodes"])
+         + "<a href='storyboard.html'>" + _("分镜脚本 →") + "</a></p>", "<h2>" + _("人物") + "</h2><div class=people>"]
     for c in sc["characters"]:
         face = (c.get("pics") or {}).get("face")
         B.append(f"<p>{f'<img src={esc(face)!r} alt=>' if face else ''}<span><b>{esc(c['label'])}</b>"
                  f"<span class=muted>{esc(c.get('role'))}</span>{_voice_html(c)}</span></p>")
     B.append("</div>")
     for e in sc["episodes"]:
-        B += [f"<section class=ep id=ep{e['ep']}><h2>第 {e['ep']} 集</h2>",
-              f"<p class=syn>梗概：{esc(e['summary'])}</p>"]
+        B += [f"<section class=ep id=ep{e['ep']}><h2>" + _("第 {ep} 集").format(ep=e['ep']) + "</h2>",
+              "<p class=syn>" + _("梗概：{text}").format(text=esc(e['summary'])) + "</p>"]
         for b in e["scenes"]:
-            B.append(f"<div class=sc><h3>{esc(_heading(b))}</h3><p class=who>人物：{esc('、'.join(b['people']) or '无')}</p>")
+            people = esc(_("、").join(map(_who, b['people'])) or _("无"))
+            B.append(f"<div class=sc><h3>{esc(_heading(b))}</h3><p class=who>" + _("人物：{people}").format(people=people) + "</p>")
             for r in b["rows"]:
                 if r["kind"] == "action":
-                    B.append(f"<p class=act>△ {esc(r['text'])}</p>")
+                    B.append("<p class=act>" + _("△ {text}").format(text=esc(r['text'])) + "</p>")
                 elif r["kind"] == "card":
-                    B.append(f"<p class=cd>【字幕】{esc(r['text'])}</p>")
+                    B.append("<p class=cd>" + _("【字幕】{text}").format(text=esc(r['text'])) + "</p>")
                 else:
-                    mood = f"<span class=md>（{esc(r['mood'])}）</span>" if r.get("mood") else ""
-                    tag = f"（{esc(r['tag'])}）" if r["tag"] else ""
-                    B.append(f"<p class=ln><b>{esc(r['who'])}{tag}：</b>{mood}{esc(r['text'])}</p>")
+                    mood = "<span class=md>" + _("（{mood}）").format(mood=esc(r['mood'])) + "</span>" if r.get("mood") else ""
+                    who = _tagged(esc(_who(r['who'])), esc(r['tag']) if r["tag"] else "")
+                    B.append("<p class=ln><b>" + _("{who}：").format(who=who) + f"</b>{mood}{esc(r['text'])}</p>")
             B.append("</div>")
         B.append("</section>")
-    return page(f"{sc['title']} · 剧本", B)
+    return page(_("{title} · 剧本").format(title=sc['title']), B)
 
 
 # ---- the shot script: storyboard.html / storyboard.pdf ----
@@ -879,11 +903,13 @@ table.sb{table-layout:fixed}.sb th,.sb td{font-size:12.5px}.sb img{width:100%;bo
 
 def board_html(sc: dict) -> str:
     n_shots = sum(len(b["board"]) for e in sc["episodes"] for b in e["scenes"])
-    B = [f"<style>{BOARD_CSS}{PRINT}</style>", f"<h1>{esc(sc['title'])} · 分镜脚本</h1>",
-         f"<p class=muted>{len(sc['episodes'])} 集 · {n_shots} 镜。动效：全动 / 局部动 / 静图推拉，后面是运镜和特效；"
-         "音效是从原片音轨里听出来的提示音，仅供参考；左边红线是必保镜头，镜号旁的小字是这一镜的戏剧作用。点缩略图播原片的这一镜。</p>",
-         "<p class=toc><a href='#cast'>角色设定</a>" + "".join(f"<a href='#ep{e['ep']}'>第 {e['ep']} 集</a>" for e in sc["episodes"])
-         + "<a href='script.html'>← 剧本</a></p>", "<h2 id=cast>角色设定</h2><div class=cast>"]
+    B = ([f"<style>{BOARD_CSS}{PRINT}</style>", "<h1>" + _("{title} · 分镜脚本").format(title=esc(sc['title'])) + "</h1>",
+          "<p class=muted>" + _("{eps} 集 · {shots} 镜。动效：全动 / 局部动 / 静图推拉，后面是运镜和特效；"
+                                "音效是从原片音轨里听出来的提示音，仅供参考；左边红线是必保镜头，镜号旁的小字是这一镜的戏剧作用。"
+                                "点缩略图播原片的这一镜。").format(eps=len(sc['episodes']), shots=n_shots) + "</p>",
+          "<p class=toc><a href='#cast'>" + _("角色设定") + "</a>"
+          + "".join(f"<a href='#ep{e['ep']}'>" + _("第 {ep} 集").format(ep=e['ep']) + "</a>" for e in sc["episodes"])
+          + "<a href='script.html'>" + _("← 剧本") + "</a></p>", "<h2 id=cast>" + _("角色设定") + "</h2><div class=cast>"])
     for c in sc["characters"]:
         pics = c.get("pics") or {}
         imgs = "".join(f"<img class={k} src='{esc(v)}' alt='{esc(c['label'])}'>" for k, v in pics.items())
@@ -893,30 +919,34 @@ def board_html(sc: dict) -> str:
                  f"<p style='margin-top:6px'><span class=chip>{esc(_role_line(c))}</span></p></div>")
     B.append("</div>")
     head = ("<colgroup><col class=c-no><col class=c-pic><col class=c-size><col><col class=c-line><col class=c-sfx>"
-            "<col class=c-mo><col class=c-t></colgroup><tr><th>镜号</th><th>画面</th><th>景别</th><th>画面描述</th>"
-            "<th>台词 / 旁白 / OS</th><th>音效</th><th>动效</th><th>时长</th></tr>")
+            "<col class=c-mo><col class=c-t></colgroup><tr>"
+            + "".join(f"<th>{_(h)}</th>" for h in ("镜号", "画面", "景别", "画面描述", "台词 / 旁白 / OS", "音效", "动效", "时长"))
+            + "</tr>")
     for e in sc["episodes"]:
-        B += [f"<section class=ep id=ep{e['ep']}><h2>第 {e['ep']} 集 <span class=muted>{_sec(e['duration'])}</span></h2>",
+        B += [f"<section class=ep id=ep{e['ep']}><h2>" + _("第 {ep} 集").format(ep=e['ep'])
+              + f" <span class=muted>{_sec(e['duration'])}</span></h2>",
               f"<p class=syn>{esc(e['summary'])}</p>"]
         for b in e["scenes"]:
-            B.append(f"<p class=sh>{esc(_heading(b))}<span>{_sec(b['start'])} 起 · {len(b['board'])} 镜</span></p>")
+            B.append(f"<p class=sh>{esc(_heading(b))}<span>"
+                     + _("{t} 起 · {n} 镜").format(t=_sec(b['start']), n=len(b['board'])) + "</span></p>")
             rows = []
             for x in b["board"]:
-                lines = "".join(f"<p class=l><b>{esc(l['who'])}{('（' + esc(l['tag']) + '）') if l['tag'] else ''}：</b>"
-                                f"{esc(l['text'])}</p>" for l in x["lines"])
-                beat = "".join(f"<span class=bt>{esc(t)}</span>" for t in x["beat"])
-                who = f"<span class=wh>{esc('、'.join(x['who']))}</span>" if x["who"] else ""
-                play = (f" data-v='{esc(x['clip'])}' data-a={x['t']:.2f} data-b={x['t'] + x['dur']:.2f} data-title='第 {e['ep']} 集 镜 {x['no']}' "
-                        f"data-cap='{esc(x['picture'])}' title='点开播这一镜'" if x.get("clip") else "")
+                lines = "".join("<p class=l><b>" + _("{who}：").format(who=_tagged(esc(_who(l['who'])), esc(l['tag']) if l['tag'] else ""))
+                                + f"</b>{esc(l['text'])}</p>" for l in x["lines"])
+                beat = "".join(f"<span class=bt>{esc(_(t))}</span>" for t in x["beat"])
+                who = f"<span class=wh>{esc(_('、').join(map(_who, x['who'])))}</span>" if x["who"] else ""
+                play = (f" data-v='{esc(x['clip'])}' data-a={x['t']:.2f} data-b={x['t'] + x['dur']:.2f} data-title='"
+                        + esc(_("第 {ep} 集 镜 {no}").format(ep=e['ep'], no=x['no'])) + "' "
+                        f"data-cap='{esc(x['picture'])}' title='" + esc(_("点开播这一镜")) + "'" if x.get("clip") else "")
                 pic = f"<img loading=lazy src='{esc(x['thumb'])}' alt=''{play}>" if x["thumb"] else ""
-                size = esc(x["size"]) + (f"<br><span class=muted>{esc(x['angle'])}</span>" if x["angle"] else "")
+                size = esc(_(x["size"])) + (f"<br><span class=muted>{esc(_(x['angle']))}</span>" if x["angle"] else "")
                 rows.append(f"<tr{' class=kp' if x['must'] else ''}><td class=no>{x['no']}<br>{beat}</td>"
                             f"<td class=pic>{pic}</td><td>{size}</td><td>{esc(x['picture'])}{who}</td><td>{lines}</td>"
-                            f"<td>{esc('、'.join(x['sfx']))}</td><td>{esc(x['motion'])}</td>"
+                            f"<td>{esc(_('、').join(x['sfx']))}</td><td>{esc(' · '.join(map(_, x['motion'].split(' · '))))}</td>"
                             f"<td>{x['dur']:.1f}s</td></tr>")
             B.append(f"<div class=tw><table class=sb>{head}{''.join(rows)}</table></div>")
         B.append("</section>")
-    return page(f"{sc['title']} · 分镜脚本", B, player(None))
+    return page(_("{title} · 分镜脚本").format(title=sc['title']), B, player(None))
 
 
 # ---- files ----

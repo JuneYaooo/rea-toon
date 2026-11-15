@@ -15,12 +15,15 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from . import emotion, layout
-from .genre import FORMATS, format_of
+from .genre import FORMATS, format_of, shown
+from .lang import part as _part
 from .page import bar_chart, cast_names, esc, fold, line_chart, meter, page, player, point, ref, stamp, statline, up
 from .prompts import REPORT_PROMPT
 from .story import PRIORITY_CN, ROLE_CN, gap_line, lock_state, prior_text, said_tag
 from .subtitles import MODE_CN, line_mode, unique_lines
-from .vlm import VLM
+from .vlm import VLM, for_work
+
+_ = _part("report")  # page words: rea_toon/i18n/en_report.py
 
 LOG = logging.getLogger(__name__)
 
@@ -234,7 +237,7 @@ def build(story: dict, vlm: VLM | None, series: str | None = None) -> dict:
            "locked": lock_state(story) == "locked"}
     if vlm is not None:
         try:
-            rep["read"] = vlm.ask_json(_prompt(story, m, fmt), [], max_tokens=8000, timeout=300)
+            rep["read"] = vlm.ask_json(_prompt(story, m, fmt), [], max_tokens=8000, timeout=300, prose=True)
         except Exception as exc:  # the measured part still stands
             LOG.warning("爆款拆解（模型解读）失败：%s", exc)
             rep["read_error"] = str(exc)
@@ -248,7 +251,7 @@ def report(work: Path, vlm: VLM | None = None, use_vlm: bool = True) -> dict:
     if not emotion.has_feels(story):
         raise RuntimeError(f"这份拆解没有逐镜情绪，出不了报告：先 rea-toon redo breakdown {work}")
     if use_vlm and vlm is None:
-        vlm = VLM(cache_dir=layout.analysis(work, "vlm_cache"))
+        vlm = for_work(work)
     rep = build(story, vlm if use_vlm else None, series_format(work))
     old = layout.data(work, "report.json")
     if not use_vlm and old.is_file():  # numbers redone without a model: the last read is kept, and marked if they moved
@@ -313,7 +316,7 @@ def _sec(x) -> str:
 
 
 def _beat_feel(b: dict) -> str:
-    return f"（{b['feel']}）" if b.get("feel") else ""
+    return _("（{feel}）").format(feel=_(b["feel"])) if b.get("feel") else ""
 
 
 def _range(x, pair: bool = True) -> str:
@@ -321,7 +324,7 @@ def _range(x, pair: bool = True) -> str:
     if not isinstance(x, list) or not all(str(i).lstrip("-").isdigit() for i in x):
         return str(x or "")
     x = [int(i) for i in x]
-    return f"{x[0]}–{x[1]}" if pair and len(x) == 2 and x[0] < x[1] else span(x).replace(", ", "、")
+    return f"{x[0]}–{x[1]}" if pair and len(x) == 2 and x[0] < x[1] else span(x).replace(", ", _("、"))
 
 
 def _paras(text) -> str:
@@ -341,51 +344,81 @@ def _short(role) -> str:
 
 
 def _names(xs) -> str:
-    return "、".join(str(x) for x in xs) if isinstance(xs, list) else str(xs or "")
+    return _("、").join(str(x) for x in xs) if isinstance(xs, list) else str(xs or "")
+
+
+def _ledger_shown(m: dict) -> list[str]:
+    """_ledger_text in the page language (that one goes into the prompt and stays as it is)."""
+    pr = m["pressure"]
+    pairs = _("、").join(_("{press}s 开始憋 → {release}s 放（等了 {hold}s，其中憋的镜头 {pressed}s）").format(**x)
+                         for x in pr["pairs"])
+    return [_("情绪配比（节点数/秒数）：") + _("，").join(_("{feel} {n} 个/{seconds}s").format(feel=_(k), n=v["n"], seconds=v["seconds"])
+                                                for k, v in m["feels"].items()),
+            _("憋→爽：{pairs}；没有先憋就放的爽点 {free} 个；片尾还欠着的憋 {owed}s").format(
+                pairs=pairs or _("没有成对的"), free=pr["free"], owed=pr["owed"])]
+
+
+def _gap_shown(g: dict) -> str:
+    """story.gap_line in the page language."""
+    opened = _("镜 {shot} 揭开").format(shot=g["to"]) if g.get("to") else _("这一集没揭开")
+    return _("{what}：{knows} 知道，{blind} 不知道；{opened}。{play}").format(
+        what=g.get("what"), knows=_names(g.get("knows")), blind=_names(g.get("blind")), opened=opened, play=g.get("play") or "")
 
 
 def to_md(rep: dict) -> str:
     m, r = rep["metrics"], rep.get("read") or {}
     tags = r.get("tags") or {}
-    L = [f"# 爆款拆解：{rep['title'] or 'source'}", "", f"**类型**：{rep['format']['cn']}（{rep['format']['why']}）", ""]
+    fmt = shown(rep["format"])
+    L = [_("# 爆款拆解：{title}").format(title=rep["title"] or "source"), "",
+         _("**类型**：{format}（{why}）").format(format=fmt["cn"], why=fmt["why"]), ""]
     if r.get("logline"):
-        L += [f"**一句话卖点**：{r['logline']}", ""]
+        L += [_("**一句话卖点**：{logline}").format(logline=r["logline"]), ""]
     if tags:
-        L += [f"**题材**：{'、'.join(tags.get('themes') or [])}　**受众**：{tags.get('audience', '')}　"
-              f"**爽感**：{'、'.join(tags.get('pleasure') or [])}", ""]
-    L += ["## 数据", "", f"- 时长 {m['duration']}s · {m['shots']} 镜 · {m['scenes']} 场 · 平均镜长 {m['avg_shot']}s · 每分钟 {m['cuts_per_min']} 刀",
-          f"- 台词每秒 {m['talk_per_sec']} 字 · 第一个冲突 {_sec(m['first_conflict'])} · 第一个情绪节点 {_sec(m['first_peak'])} · "
-          f"情绪节点 {m['peaks']} 个 · {'有' if m['cliffhanger'] else '没有'}结尾钩子"]
+        L += [_("**题材**：{themes}　**受众**：{audience}　**爽感**：{pleasure}").format(
+            themes=_("、").join(tags.get("themes") or []), audience=tags.get("audience", ""),
+            pleasure=_("、").join(tags.get("pleasure") or [])), ""]
+    L += [_("## 数据"), "",
+          "- " + _("时长 {duration}s · {shots} 镜 · {scenes} 场 · 平均镜长 {avg_shot}s · 每分钟 {cuts_per_min} 刀").format(**m),
+          "- " + _("台词每秒 {talk} 字 · 第一个冲突 {conflict} · 第一个情绪节点 {peak} · 情绪节点 {peaks} 个 · {cliff}").format(
+              talk=m["talk_per_sec"], conflict=_sec(m["first_conflict"]), peak=_sec(m["first_peak"]), peaks=m["peaks"],
+              cliff=_("有结尾钩子") if m["cliffhanger"] else _("没有结尾钩子"))]
     if m.get("avg_gap") is not None:
-        L.append(f"- 节点之间的空档：平均 {m['avg_gap']}s · 最长 {m['longest_gap']}s · {m['hit_share']:.0%} 的时长在节点里")
+        L.append("- " + _("节点之间的空档：平均 {avg_gap}s · 最长 {longest_gap}s · {hit_share:.0%} 的时长在节点里").format(**m))
     if m["first_peak"] is not None and m["first_peak"] > DEAD_GAP:
-        L.append(f"- ⚠️ 第一个情绪节点在 {m['first_peak']:.1f}s，晚于 {DEAD_GAP:.0f}s")
-    L += [f"- ⚠️ {g['from']}–{g['to']}s 连续 {g['len']}s 没有情绪节点" for g in m["dead_zones"]] + [""]
+        L.append("- ⚠️ " + _("第一个情绪节点在 {t:.1f}s，晚于 {limit:.0f}s").format(t=m["first_peak"], limit=DEAD_GAP))
+    L += ["- ⚠️ " + _("{a}–{b}s 连续 {n}s 没有情绪节点").format(a=g["from"], b=g["to"], n=g["len"]) for g in m["dead_zones"]] + [""]
     if r.get("hook"):
-        L += ["## 开头钩子", "", r["hook"], ""]
-    L += ["## 情绪账", ""] + ([r["engine"], ""] if r.get("engine") else []) + [f"- {x}" for x in _ledger_text(m)]
-    L += [f"- {n['t']:.1f}s **{n['feel']}** 镜 {span(n['shots'])}：{n['what']}" for n in m["nodes"]] + [""]
+        L += [_("## 开头钩子"), "", r["hook"], ""]
+    L += [_("## 情绪账"), ""] + ([r["engine"], ""] if r.get("engine") else []) + [f"- {x}" for x in _ledger_shown(m)]
+    L += [_("- {t:.1f}s **{feel}** 镜 {shots}：{what}").format(t=n["t"], feel=_(n["feel"]), shots=span(n["shots"]), what=n["what"])
+          for n in m["nodes"]] + [""]
     if rep.get("info_gaps"):
-        L += ["## 信息差", ""] + ([r["info_gap"], ""] if r.get("info_gap") else [])
-        L += [f"- {gap_line(g)}" for g in rep["info_gaps"]] + [""]
+        L += [_("## 信息差"), ""] + ([r["info_gap"], ""] if r.get("info_gap") else [])
+        L += [f"- {_gap_shown(g)}" for g in rep["info_gaps"]] + [""]
     if r.get("structure"):
-        L += ["## 结构", ""] + [f"- **{x.get('part')}**（镜 {x.get('shots')}）：{x.get('what')}" for x in r["structure"]] + [""]
-    L += ["## 戏剧节拍", ""] + [f"- {b['t']:.1f}s **{ROLE_CN.get(b['type'], b['type'])}**{_beat_feel(b)} 镜 {span(b['shots'])}：{b.get('what', '')}"
-                              + (f"（兑现：{b['pays']}）" if b.get("pays") else "") for b in rep["beats"]] + [""]
+        L += [_("## 结构"), ""] + [_("- **{part}**（镜 {shots}）：{what}").format(part=x.get("part"), shots=x.get("shots"), what=x.get("what"))
+                                 for x in r["structure"]] + [""]
+    L += [_("## 戏剧节拍"), ""] + [_("- {t:.1f}s **{role}**{feel} 镜 {shots}：{what}").format(
+        t=b["t"], role=_(ROLE_CN.get(b["type"], b["type"])), feel=_beat_feel(b), shots=span(b["shots"]), what=b.get("what", ""))
+        + (_("（兑现：{pays}）").format(pays=b["pays"]) if b.get("pays") else "") for b in rep["beats"]] + [""]
     if r.get("tropes"):
-        L += ["## 套路", ""] + [f"- **{x.get('name')}**（镜 {x.get('shots')}）：{x.get('how')}" for x in r["tropes"]] + [""]
+        L += [_("## 套路"), ""] + [_("- **{name}**（镜 {shots}）：{how}").format(name=x.get("name"), shots=x.get("shots"), how=x.get("how"))
+                                 for x in r["tropes"]] + [""]
     if r.get("characters"):
-        L += ["## 人设", ""] + [f"- **{x.get('id')}** {x.get('persona')}：{x.get('function')}；记忆点：{x.get('memorable')}"
-                              for x in r["characters"]] + [""]
+        L += [_("## 人设"), ""] + [_("- **{id}** {persona}：{function}；记忆点：{memorable}").format(
+            id=x.get("id"), persona=x.get("persona"), function=x.get("function"), memorable=x.get("memorable"))
+            for x in r["characters"]] + [""]
     if r.get("relations"):
-        L += ["## 关系和张力", ""] + [f"- {x.get('a')} × {x.get('b')}：{x.get('relation')}；{x.get('tension')}" for x in r["relations"]] + [""]
-    for key, name in (("why_it_works", "为什么留得住人"), ("weaknesses", "短板"), ("remix", "改编方向")):
+        L += [_("## 关系和张力"), ""] + [_("- {a} × {b}：{relation}；{tension}").format(
+            a=x.get("a"), b=x.get("b"), relation=x.get("relation"), tension=x.get("tension")) for x in r["relations"]] + [""]
+    for key, name in (("why_it_works", _("为什么留得住人")), ("weaknesses", _("短板")), ("remix", _("改编方向"))):
         if r.get(key):
             L += [f"## {name}", ""] + [f"- {point(x)}" for x in r[key]] + [""]
     if r.get("formula"):
-        L += ["## 可复用公式", ""] + [f"{i}. **{x.get('step')}**（约 {float(x.get('share') or 0):.0%}）：{x.get('what')}"
-                                   for i, x in enumerate(r["formula"], 1)] + [""]
-    L += ["## 这类剧要看的", ""] + [f"- {x}" for x in rep["format"]["lens"]]
+        L += [_("## 可复用公式"), ""] + [_("{i}. **{step}**（约 {share:.0%}）：{what}").format(
+            i=i, step=x.get("step"), share=float(x.get("share") or 0), what=x.get("what"))
+            for i, x in enumerate(r["formula"], 1)] + [""]
+    L += [_("## 这类剧要看的"), ""] + [f"- {x}" for x in fmt["lens"]]
     return "\n".join(L) + "\n"
 
 
@@ -401,102 +434,107 @@ def to_html(rep: dict, story: dict | None = None, video: str | None = None, call
     called: names to use for the characters (page.cast_names) instead of their roles."""
     m, r = rep["metrics"], rep.get("read") or {}
     tags = r.get("tags") or {}
+    fmt = shown(rep["format"])
+    sep = _("、")
     shots = {s["index"]: s for s in (story or {}).get("shots") or []}
     names = {**{c["id"]: _short(c.get("role")) or c["id"] for c in (story or {}).get("characters") or []}, **(called or {})}
-    who = lambda x: "、".join(who(i) for i in x) if isinstance(x, list) else names.get(x, str(x or ""))
+    who = lambda x: sep.join(who(i) for i in x) if isinstance(x, list) else names.get(x, str(x or ""))
     title = re.split(r"\s*#", rep["title"] or "source")[0] or rep["title"]  # the post's hashtags are not the title
     B = [f"<h1>{esc(title)}</h1>",
-         f"<p><span class=state title='{esc(rep['format']['why'])}'>{esc(rep['format']['cn'])}</span></p>"]
+         f"<p><span class=state title='{esc(fmt['why'])}'>{esc(fmt['cn'])}</span></p>"]
     if r.get("logline"):
         B.append(f"<p class=lead>{esc(r['logline'])}</p>")
     chips = [*(tags.get("themes") or []), tags.get("audience"), *(tags.get("pleasure") or [])]
     if any(chips):
         B.append("<p>" + "".join(f"<span class=chip>{esc(c)}</span>" for c in chips if c) + "</p>")
     if rep.get("read_stale"):
-        B.append("<p class=warn>文字解读写在数据更新之前，引用的数字可能和图表对不上。</p>")
+        B.append("<p class=warn>" + _("文字解读写在数据更新之前，引用的数字可能和图表对不上。") + "</p>")
     if rep.get("read_error"):
-        B.append(f"<p class=err>模型解读失败（只有数据部分）：{esc(rep['read_error'])}；重跑 rea-toon redo report</p>")
-    B.append(statline([("", f"{m['duration']:.0f}s"), ("镜", m["shots"]), ("第一个情绪节点", _sec(m["first_peak"])),
-                       ("个情绪节点", m["peaks"]), ("节点间平均空档", _sec(m.get("avg_gap"))),
-                       ("结尾钩子", "有" if m["cliffhanger"] else "没有")]))
+        B.append("<p class=err>" + _("模型解读失败（只有数据部分）：{error}；重跑 rea-toon redo report").format(error=esc(rep["read_error"])) + "</p>")
+    B.append(statline([("", f"{m['duration']:.0f}s"), (_("镜"), m["shots"]), (_("第一个情绪节点"), _sec(m["first_peak"])),
+                       (_("个情绪节点"), m["peaks"]), (_("节点间平均空档"), _sec(m.get("avg_gap"))),
+                       (_("结尾钩子"), _("有") if m["cliffhanger"] else _("没有"))]))
 
     # ---- the conclusions ----
     why, weak = r.get("why_it_works"), r.get("weaknesses")
     if why or weak:
         col = lambda name, xs: f"<div><h2>{name}</h2>{_list(xs, lambda x: esc(point(x)))}</div>" if xs else ""
-        B.append(f"<div class=two>{col('为什么留得住人', why)}{col('短板', weak)}</div>")
+        B.append(f"<div class=two>{col(_('为什么留得住人'), why)}{col(_('短板'), weak)}</div>")
     if r.get("formula"):
-        B.append("<h2>可复用公式</h2><div class=tw><table><tr><th>#</th><th>步骤</th><th>占比</th><th>要做到</th></tr>"
+        B.append(f"<h2>{_('可复用公式')}</h2><div class=tw><table><tr><th>#</th><th>{_('步骤')}</th><th>{_('占比')}</th><th>{_('要做到')}</th></tr>"
                  + "".join(f"<tr><td>{i}</td><td class=n><b>{esc(x.get('step'))}</b></td><td class=n>{float(x.get('share') or 0):.0%}</td><td>{esc(x.get('what'))}</td></tr>"
                            for i, x in enumerate(r["formula"], 1)) + "</table></div>")
     if r.get("remix"):
-        B += ["<h3>改编方向</h3>", _list(r["remix"], lambda x: esc(point(x)))]
+        B += [f"<h3>{_('改编方向')}</h3>", _list(r["remix"], lambda x: esc(point(x)))]
 
     # ---- how it runs: the curve, and the parts under it ----
     cv = rep.get("curve") or []
     if cv or r.get("structure"):
-        B.append("<h2>结构和节奏</h2>")
+        B.append(f"<h2>{_('结构和节奏')}</h2>")
     if cv:
         pts = [((c["t0"] + c["t1"]) / 2, c["intensity"]) for c in cv]
-        tips = [f"{c['t0']:.0f}–{c['t1']:.0f}s 强度 {c['intensity']} · 切 {c['cuts']} 刀 · 每秒 {c['talk']} 字"
-                + (f" · 镜 {c['shots'][0]}–{c['shots'][-1]}" if c["shots"] else "") for c in cv]
+        tips = [_("{t0:.0f}–{t1:.0f}s 强度 {intensity} · 切 {cuts} 刀 · 每秒 {talk} 字").format(**c)
+                + (_(" · 镜 {a}–{b}").format(a=c["shots"][0], b=c["shots"][-1]) if c["shots"] else "") for c in cv]
         at = lambda t: _interp(pts, t)
-        marks = sorted([(b["t"], at(b["t"]), f"{b['t']:.1f}s {ROLE_CN.get(b['type'], b['type'])}：{b.get('what', '')}")
+        mark = _("{t:.1f}s {what}：{how}")
+        marks = sorted([(b["t"], at(b["t"]), mark.format(t=b["t"], what=_(ROLE_CN.get(b["type"], b["type"])), how=b.get("what", "")))
                         for b in rep["beats"] if b["type"] in ("hook", "cliffhanger")]
-                       + [(n["t"], at(n["t"]), f"{n['t']:.1f}s {n['feel']}：{n['what']}") for n in m["nodes"]])
-        B += ["<p class=muted>情绪强度随时间；圆点是钩子和情绪节点，悬停看是哪一镜。</p>",
-              line_chart(pts, marks, "情绪强度随时间", max(6.5, max(p[1] for p in pts)), tips)]
+                       + [(n["t"], at(n["t"]), mark.format(t=n["t"], what=_(n["feel"]), how=n["what"])) for n in m["nodes"]])
+        B += ["<p class=muted>" + _("情绪强度随时间；圆点是钩子和情绪节点，悬停看是哪一镜。") + "</p>",
+              line_chart(pts, marks, _("情绪强度随时间"), max(6.5, max(p[1] for p in pts)), tips)]
     if m["first_peak"] is not None and m["first_peak"] > DEAD_GAP:
-        B.append(f"<p class=warn>第一个情绪节点在 {m['first_peak']:.1f}s，晚于 {DEAD_GAP:.0f}s：开头可能留不住人</p>")
+        B.append("<p class=warn>" + _("第一个情绪节点在 {t:.1f}s，晚于 {limit:.0f}s：开头可能留不住人").format(t=m["first_peak"], limit=DEAD_GAP) + "</p>")
     for g in m["dead_zones"]:  # a stretch held by suspense is waiting, not dead air: say which it is
         held = round(sum(max(0.0, min(g["to"], s["end"]) - max(g["from"], s["start"])) for s in (story or {}).get("shots") or []
                          if emotion.feel_of(s) in ("悬", "憋")), 1)
         if g["len"] - held > DEAD_GAP:
-            B.append(f"<p class=warn>{g['from']}–{g['to']}s 连续 {g['len']}s 没有情绪节点，也没有悬念撑着：容易划走</p>")
+            B.append("<p class=warn>" + _("{a}–{b}s 连续 {n}s 没有情绪节点，也没有悬念撑着：容易划走").format(a=g["from"], b=g["to"], n=g["len"]) + "</p>")
         else:
-            B.append(f"<p class=muted>{g['from']}–{g['to']}s 没有新的情绪节点，其中 {held}s 靠悬念撑着</p>")
+            B.append("<p class=muted>" + _("{a}–{b}s 没有新的情绪节点，其中 {held}s 靠悬念撑着").format(a=g["from"], b=g["to"], held=held) + "</p>")
     for x in r.get("structure") or []:
         pair = x.get("shots") if isinstance(x.get("shots"), list) else []
         a, b = (shots.get(_int(pair[0])), shots.get(_int(pair[-1]))) if pair else (None, None)
         when = f" · {a['start']:.0f}–{b['end']:.0f}s" if a and b else ""
         pic = (f"<img loading=lazy src='{esc(up((a.get('frames') or {}).get('mid')))}' alt='' data-shot={a['index']} data-to={b['index']}>"
                if a and b else "<span></span>")
-        B.append(f"<div class=tl>{pic}<div><b>{esc(x.get('part'))}</b><span class=muted>镜 {ref(pair, _range(pair)) if a and b else esc(_range(x.get('shots')))}"
+        at_shots = _("镜 {shots}").format(shots=ref(pair, _range(pair)) if a and b else esc(_range(x.get("shots"))))
+        B.append(f"<div class=tl>{pic}<div><b>{esc(x.get('part'))}</b><span class=muted>{at_shots}"
                  f"{when}</span><div>{esc(x.get('what'))}</div></div></div>")
 
     # ---- what backs it up: one line each ----
     F = []
     hook = (_paras(r["hook"]) if r.get("hook") else "")
     if r.get("tropes"):
-        hook += ("<h3>套路</h3>" if hook else "") + _list(r["tropes"], lambda x: (
-            f"<b>{esc(x.get('name'))}</b> <span class=muted>镜 {_refs(x.get('shots'))}</span>：{esc(x.get('how'))}"))
-    F.append(fold("开头钩子和套路" if r.get("hook") and r.get("tropes") else "套路" if r.get("tropes") else "开头钩子",
-                  "、".join(str(x.get("name")) for x in r.get("tropes") or []) or "前几秒怎么留人", hook))
+        hook += (f"<h3>{_('套路')}</h3>" if hook else "") + _list(r["tropes"], lambda x: (
+            f"<b>{esc(x.get('name'))}</b> <span class=muted>{_('镜 {shots}').format(shots=_refs(x.get('shots')))}</span>{_('：')}{esc(x.get('how'))}"))
+    F.append(fold(_("开头钩子和套路") if r.get("hook") and r.get("tropes") else _("套路") if r.get("tropes") else _("开头钩子"),
+                  sep.join(str(x.get("name")) for x in r.get("tropes") or []) or _("前几秒怎么留人"), hook))
 
     E = [_paras(r["engine"])] if r.get("engine") else []
     pr = m["pressure"]
     if m["feels"]:
-        E += ["<p class=muted>每种情绪占的秒数（爽、虐、甜、笑、惊、燃是打到观众的；憋、悬是在攒）</p>",
-              bar_chart([(k, v["seconds"], f"{k}：{v['n']} 段，共 {v['seconds']}s") for k, v in m["feels"].items()], "s")]
+        E += ["<p class=muted>" + _("每种情绪占的秒数（爽、虐、甜、笑、惊、燃是打到观众的；憋、悬是在攒）") + "</p>",
+              bar_chart([(_(k), v["seconds"], _("{feel}：{n} 段，共 {seconds}s").format(feel=_(k), n=v["n"], seconds=v["seconds"]))
+                         for k, v in m["feels"].items()], "s")]
     if pr["pairs"]:
-        E.append("<div class=tw><table><tr><th>开始憋</th><th>放（爽）</th><th>等了</th><th>其中憋的镜头</th></tr>"
+        E.append(f"<div class=tw><table><tr><th>{_('开始憋')}</th><th>{_('放（爽）')}</th><th>{_('等了')}</th><th>{_('其中憋的镜头')}</th></tr>"
                  + "".join(f"<tr><td class=n>{x['press']}s</td><td class=n>{x['release']}s</td><td class=n>{x['hold']}s</td>"
                            f"<td class=n>{x['pressed']}s</td></tr>" for x in pr["pairs"]) + "</table></div>")
     if pr["owed"]:
-        E.append(f"<p class=muted>有 {pr['owed']} 秒的憋到片尾也没放，留给后面的集。</p>")
+        E.append("<p class=muted>" + _("有 {owed} 秒的憋到片尾也没放，留给后面的集。").format(owed=pr["owed"]) + "</p>")
     if m["nodes"]:
-        E.append("<div class=tw><table><tr><th>时间</th><th>情绪</th><th>镜头</th><th>做成了什么</th></tr>"
-                 + "".join(f"<tr><td class=n>{n['t']:.1f}s</td><td class=n>{esc(n['feel'])}</td><td class=n>{ref(n['shots'], span(n['shots']))}</td>"
+        E.append(f"<div class=tw><table><tr><th>{_('时间')}</th><th>{_('情绪')}</th><th>{_('镜头')}</th><th>{_('做成了什么')}</th></tr>"
+                 + "".join(f"<tr><td class=n>{n['t']:.1f}s</td><td class=n>{esc(_(n['feel']))}</td><td class=n>{ref(n['shots'], span(n['shots']))}</td>"
                            f"<td>{esc(n['what'])}</td></tr>" for n in m["nodes"]) + "</table></div>")
-    mix = "、".join(f"{k} {v['seconds']:g}s" for k, v in list(m["feels"].items())[:3])
-    F.append(fold("情绪账", f"{m['peaks']} 个节点" + (f" · {mix}" if mix else ""), "".join(E)))
+    mix = sep.join(_("{feel} {seconds:g}s").format(feel=_(k), seconds=v["seconds"]) for k, v in list(m["feels"].items())[:3])
+    F.append(fold(_("情绪账"), _("{n} 个节点").format(n=m["peaks"]) + (f" · {mix}" if mix else ""), "".join(E)))
 
     if rep.get("info_gaps"):
-        F.append(fold("信息差", f"{len(rep['info_gaps'])} 条 · 谁知道、谁不知道、哪一镜揭开",
+        F.append(fold(_("信息差"), _("{n} 条 · 谁知道、谁不知道、哪一镜揭开").format(n=len(rep["info_gaps"])),
                       (_paras(r["info_gap"]) if r.get("info_gap") else "")
-                      + "<div class=tw><table><tr><th>是什么</th><th>谁知道</th><th>谁不知道</th><th>揭开</th><th>怎么做戏</th></tr>"
+                      + f"<div class=tw><table><tr><th>{_('是什么')}</th><th>{_('谁知道')}</th><th>{_('谁不知道')}</th><th>{_('揭开')}</th><th>{_('怎么做戏')}</th></tr>"
                       + "".join(f"<tr><td>{esc(g.get('what'))}</td><td>{esc(who(g.get('knows')))}</td><td>{esc(who(g.get('blind')))}</td>"
-                                f"<td class=n>{'镜 ' + ref(g['to']) if g.get('to') else '<span class=warn>没揭开</span>'}</td>"
+                                f"<td class=n>{_('镜 {shot}').format(shot=ref(g['to'])) if g.get('to') else '<span class=warn>' + _('没揭开') + '</span>'}</td>"
                                 f"<td>{esc(g.get('play'))}</td></tr>" for g in rep["info_gaps"]) + "</table></div>"))
 
     # one table of people: screen time is a column of it, not a chart of its own
@@ -504,35 +542,37 @@ def to_html(rep: dict, story: dict | None = None, video: str | None = None, call
     top = max(m["screen_time"].values(), default=0)
     P = ""
     if m["screen_time"]:
-        P += ("<div class=tw><table><tr><th>角色</th><th>出镜</th><th>台词</th>" + ("<th>人设</th><th>作用</th><th>记忆点</th>" if read else "") + "</tr>"
+        P += (f"<div class=tw><table><tr><th>{_('角色')}</th><th>{_('出镜')}</th><th>{_('台词')}</th>"
+              + (f"<th>{_('人设')}</th><th>{_('作用')}</th><th>{_('记忆点')}</th>" if read else "") + "</tr>"
               + "".join(f"<tr><td class=n><b>{esc(who(k))}</b></td><td class=n>{meter(v, top, f'{v:g}s')}</td>"
-                        f"<td class=n>{m['talk_lines'].get(k, 0)} 句 / {m['talk_chars'].get(k, 0)} 字</td>"
+                        f"<td class=n>{_('{lines} 句 / {chars} 字').format(lines=m['talk_lines'].get(k, 0), chars=m['talk_chars'].get(k, 0))}</td>"
                         + (f"<td>{esc((read.get(k) or {}).get('persona'))}</td><td>{esc((read.get(k) or {}).get('function'))}</td>"
                            f"<td>{esc((read.get(k) or {}).get('memorable'))}</td>" if read else "") + "</tr>"
                         for k, v in m["screen_time"].items() if v or k in read) + "</table></div>")
     rel = {tuple(sorted((x.get("a", ""), x.get("b", "")))): x for x in r.get("relations") or []}
     duels = [p for p in m["pairs"] if p["exchanges"] or (p["a"], p["b"]) in rel]  # sharing a frame in silence is no scene
     if duels:
-        P += ("<h3>对手戏</h3><div class=tw><table><tr><th>两人</th><th>同框</th><th>你来我往</th><th>关系和张力</th></tr>"
-              + "".join(f"<tr><td>{esc(who(p['a']))} × {esc(who(p['b']))}</td><td class=n>{p['seconds']}s</td><td class=n>{p['exchanges']} 次</td>"
+        P += (f"<h3>{_('对手戏')}</h3><div class=tw><table><tr><th>{_('两人')}</th><th>{_('同框')}</th><th>{_('你来我往')}</th><th>{_('关系和张力')}</th></tr>"
+              + "".join(f"<tr><td>{esc(who(p['a']))} × {esc(who(p['b']))}</td><td class=n>{p['seconds']}s</td><td class=n>{_('{n} 次').format(n=p['exchanges'])}</td>"
                         f"<td>{esc((rel.get((p['a'], p['b'])) or {}).get('relation'))} {esc((rel.get((p['a'], p['b'])) or {}).get('tension'))}</td></tr>"
                         for p in duels) + "</table></div>")
-    F.append(fold("人物和对手戏", "、".join(who(k) for k in list(m["screen_time"])[:4]) + (" 等" if len(m["screen_time"]) > 4 else ""), P))
+    F.append(fold(_("人物和对手戏"), sep.join(who(k) for k in list(m["screen_time"])[:4]) + (_(" 等") if len(m["screen_time"]) > 4 else ""), P))
 
-    kv = lambda d, k=4: "、".join(f"{a} {b}" for a, b in list(d.items())[:k]) if isinstance(d, dict) else str(d or "")
+    kv = lambda d, k=4: sep.join(f"{_(a)} {b}" for a, b in list(d.items())[:k]) if isinstance(d, dict) else str(d or "")
     scenes = ((story or {}).get("breakdown") or {}).get("scenes") or []
     places = list(dict.fromkeys(re.sub(r"[（(][^）)]*[）)]", "", str(x.get("location") or "")).strip() for x in scenes))
     looks = sum(len(x.get("looks") or {}) for x in scenes)
-    F.append(fold("制作量", f"{len(places) or m['scenes']} 个场景 · {len(m['screen_time'])} 个角色 · {m['shots']} 镜", "".join([
-        "<ul>", (f"<li><b>场景</b> {len(places)} 个：{esc('、'.join(p for p in places if p))}</li>" if places else ""),
-        f"<li><b>演员</b> {len(m['screen_time'])} 个有戏份的角色" + (f"，分场造型共 {looks} 套次" if looks else "") + "</li>",
-        f"<li><b>镜头</b> {m['shots']} 个，平均 {m['avg_shot']}s，每分钟切 {m['cuts_per_min']} 刀；景别：{esc(kv(m['shot_sizes']))}；运镜：{esc(kv(m['camera_moves'], 3))}</li>",
-        f"<li><b>台词</b> 每秒 {m['talk_per_sec']} 字；{esc(kv(m['talk_modes']))}</li>",
-        (f"<li><b>后期</b> 特效 {m['vfx_shots']} 镜、花字 {m['overlays']} 处</li>" if m["vfx_shots"] or m["overlays"] else ""), "</ul>"])))
+    F.append(fold(_("制作量"), _("{places} 个场景 · {cast} 个角色 · {shots} 镜").format(places=len(places) or m["scenes"], cast=len(m["screen_time"]), shots=m["shots"]), "".join([
+        "<ul>", (_("<li><b>场景</b> {n} 个：{places}</li>").format(n=len(places), places=esc(sep.join(p for p in places if p))) if places else ""),
+        _("<li><b>演员</b> {n} 个有戏份的角色").format(n=len(m["screen_time"])) + (_("，分场造型共 {looks} 套次").format(looks=looks) if looks else "") + "</li>",
+        _("<li><b>镜头</b> {n} 个，平均 {avg}s，每分钟切 {cuts} 刀；景别：{sizes}；运镜：{moves}</li>").format(
+            n=m["shots"], avg=m["avg_shot"], cuts=m["cuts_per_min"], sizes=esc(kv(m["shot_sizes"])), moves=esc(kv(m["camera_moves"], 3))),
+        _("<li><b>台词</b> 每秒 {talk} 字；{modes}</li>").format(talk=m["talk_per_sec"], modes=esc(kv(m["talk_modes"]))),
+        (_("<li><b>后期</b> 特效 {vfx} 镜、花字 {overlays} 处</li>").format(vfx=m["vfx_shots"], overlays=m["overlays"]) if m["vfx_shots"] or m["overlays"] else ""), "</ul>"])))
     F = [x for x in F if x]
     if F:
-        B.append("<div class=more><p class=muted>依据和细节，点开看</p>" + "".join(F) + "</div>")
-    return page(f"爆款拆解 {rep['title'] or ''}".strip(), B, player(story, video))
+        B.append("<div class=more><p class=muted>" + _("依据和细节，点开看") + "</p>" + "".join(F) + "</div>")
+    return page(_("爆款拆解 {title}").format(title=rep["title"] or "").strip(), B, player(story, video))
 
 
 def _int(x) -> int | None:
@@ -546,4 +586,4 @@ def _refs(xs) -> str:
     """Shots a trope sits on, each one to click: 2、6、45."""
     if not isinstance(xs, list) or any(_int(i) is None for i in xs):
         return esc(_range(xs, False))
-    return "、".join(ref(int(i)) for i in xs)
+    return _("、").join(ref(int(i)) for i in xs)

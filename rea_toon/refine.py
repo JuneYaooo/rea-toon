@@ -386,7 +386,7 @@ def merge_identities(story: dict, work: Path, vlm: VLM, workers: int = 6) -> lis
             return vlm.ask_json(IDENTITY_PROMPT.format(a=a, b=b, a_info=info(by_id[a]), b_info=info(by_id[b]),
                                                        a_pics=nums(1, len(pa)), b_pics=nums(1 + len(pa), len(pb)),
                                                        summary=story.get("summary", ""), clues="\n".join(f"- {c}" for c in clues),
-                                                       lines=lines), pa + pb, max_tokens=4096, timeout=300)
+                                                       lines=lines), pa + pb, max_tokens=4096, timeout=300, prose=True)
         except Exception as exc:  # a safety net, never a blocker
             LOG.warning("角色合并检查 %s/%s 失败：%s", a, b, exc)
             return None

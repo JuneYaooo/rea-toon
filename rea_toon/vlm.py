@@ -115,6 +115,7 @@ class VLM:
         self._lock = threading.Lock()
         self.cache_dir = cache_dir
         self.timeout = timeout
+        self.lang = "zh"  # what the answers people read are written in (lang.py); for_work sets the work dir's
         if cache_dir:
             cache_dir.mkdir(parents=True, exist_ok=True)
         if self.backend == "agent":
@@ -168,7 +169,12 @@ class VLM:
         b, _, m = self.endpoints[0]
         return f"{m} @ {re.sub(r'^https?://', '', b).split('/')[0]}"
 
-    def ask_json(self, prompt: str, images: list[Path], max_tokens: int = 8192, timeout: float | None = None):
+    def ask_json(self, prompt: str, images: list[Path], max_tokens: int = 8192, timeout: float | None = None,
+                 prose: bool = False):
+        """prose: people read the answer (not only code), so it is asked in the work dir's language (lang.instruction)."""
+        if prose:
+            from .lang import instruction
+            prompt += instruction(self.lang)
         h = hashlib.sha1(prompt.encode())
         for p in images:
             h.update(hashlib.sha1(Path(p).read_bytes()).digest())
@@ -222,5 +228,7 @@ class VLM:
 
 def for_work(work: Path, backend: str | None = None) -> VLM:
     """The model client of one work dir, with its answer cache (a re-run with the same prompt and pictures is free)."""
-    from . import layout
-    return VLM(cache_dir=layout.analysis(work, "vlm_cache"), backend=backend)
+    from . import lang, layout
+    v = VLM(cache_dir=layout.analysis(work, "vlm_cache"), backend=backend)
+    v.lang = lang.of(work)
+    return v
