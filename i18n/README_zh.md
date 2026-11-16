@@ -11,7 +11,7 @@ AI 拆解学习短剧：rea-toon 是用来学习短剧的工具。
 
 拆解结果同时写成 **[VIDEO.md](https://videomd.github.io/videomd/)**：一个开放格式，agent 一层一层按需读。
 
-中文 | [English](../README.md)
+中文 | [English](../README.md) | [日本語](README_ja.md)
 
 [![Stars](https://img.shields.io/github/stars/JuneYaooo/rea-toon?style=flat)](https://github.com/JuneYaooo/rea-toon/stargazers)
 ![Python](https://img.shields.io/badge/python-%E2%89%A53.10-blue)

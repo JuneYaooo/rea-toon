@@ -11,7 +11,7 @@ A tool for learning from short dramas: why one went viral, how the script is wri
 
 Every breakdown is also written as **[VIDEO.md](https://videomd.github.io/videomd/)**, an open format that agents read layer by layer.
 
-[中文](i18n/README_zh.md) | English
+[中文](i18n/README_zh.md) | English | [日本語](i18n/README_ja.md)
 
 [![Stars](https://img.shields.io/github/stars/JuneYaooo/rea-toon?style=flat)](https://github.com/JuneYaooo/rea-toon/stargazers)
 ![Python](https://img.shields.io/badge/python-%E2%89%A53.10-blue)
