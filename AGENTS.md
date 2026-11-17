@@ -87,4 +87,4 @@
 - 给模型的图是一集里最大的 token 开销（联系表、逐镜拼图、认脸参考图）：加图、放大图之前先算像素；长剧的省法和实测见 `skills/rea-toon/references/series.md`。
 - 改拆解提示词会让已有工作目录的答案缓存失效（重跑要重新付费，或由 agent 重新作答），没必要不改措辞。
 - 不要提交密钥、服务器密码和 `work/`。
-- 协议：PolyForm Noncommercial 1.0.0（不允许商用，`LICENSE`）。README 有中英两版（`README.md` 英文、`i18n/README_zh.md` 中文，结构参照 rea-video），改一版要同步另一版；只写结合 agent 的用法，不写手动安装和命令表；片源只说本地视频。
+- 协议：PolyForm Noncommercial 1.0.0（不允许商用，`LICENSE`）。README 有中英日三版（`README.md` 英文、`i18n/README_zh.md` 中文、`i18n/README_ja.md` 日文，结构参照 rea-video），改一版要同步另外两版；只写结合 agent 的用法，不写手动安装和命令表；片源只说本地视频。
