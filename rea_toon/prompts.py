@@ -480,3 +480,12 @@ SCRIPT_POLISH_PROMPT = """你是短剧编剧，在把一集剧的逐镜头拆解
 只输出 JSON：{{"scenes": [{{"no": "1-1", "time": "日", "place": "外", "location": "游乐场"}}, ...],
 "actions": [{{"id": "A0", "text": "改写后的动作"}}, ...], "names": {{"角色id": "称呼"}},
 "lines": [{{"id": "L3", "who": "广播员"}}, {{"id": "L9", "text": "删掉乱码后的台词"}}, ...]}}"""
+
+
+# rea-video survey (perceive.survey): its task file carries the instructions, the material and the questions
+SURVEY_PROMPT = """{instructions}
+
+请求：
+{request}
+
+只输出 JSON，形如 {template}，gaps 里按 gap 编号填。"""

@@ -1,8 +1,9 @@
 """Perception of one video -> story.json (stage 1 of the pipeline; pipeline.perceive runs it).
 
-1. rea-video decompose: shot cuts, stems (vocals / music), production forensics
+1. rea-video survey + decompose: overview sheets of the whole video first, closer looks where a transition or a doubt
+   is (answered by our model), then shots cut at those scene changes, stems (vocals / music), production forensics
 2. timed subtitle OCR, proofread once by the model
-3. full-res first / mid / last frame per shot
+3. full-res first / mid / last frame per shot (mid: the key frame nearest the middle, where a move settles or turns)
 4. VLM cast pass over contact sheets: who is who across shots
 5. VLM shot pass: per shot characters, emotion, camera, motion prompt
    (fast: 5 shots per call with staging included; full: one call per shot plus the per-second acting pass)
@@ -24,9 +25,9 @@ from . import subtitles as subs_mod
 from .breakdown.acting import add_performance
 from .breakdown.staging import staging_from
 from .media import aspect_of, contact_sheets, face_sheet, frame_at, probe, shot_strip
-from .prompts import CAST_PROMPT, SERIES_CONTEXT, SERIES_FACES, SHOT_BATCH_PROMPT, SHOT_PROMPT
+from .prompts import CAST_PROMPT, SERIES_CONTEXT, SERIES_FACES, SHOT_BATCH_PROMPT, SHOT_PROMPT, SURVEY_PROMPT
 from .refine import proofread
-from .vlm import for_work, Pool, VLM
+from .vlm import for_work, parse_json, Pool, VLM
 
 LOG = logging.getLogger(__name__)
 
@@ -36,6 +37,58 @@ def _rea_video_bin() -> str:
         if cand and Path(cand).expanduser().exists():
             return str(Path(cand).expanduser())
     raise RuntimeError("找不到 rea-video：pip install git+https://github.com/JuneYaooo/rea-video ，或在 .env 里设置 REA_VIDEO_BIN")
+
+
+SURVEY_ROUNDS = 5  # rea-video asks at most three rounds about the cuts; a few more runs before giving up on bad answers
+# rea-video's transition names -> story.TRANSITIONS (the others are a plain cut to a short drama)
+TRANSITION_OF = {"dissolve": "dissolve", "fade": "fade", "whip": "whip", "match": "match", "flash": "white_flash"}
+
+
+def survey(work: Path, vlm: VLM, workers: int = 6) -> dict | None:
+    """rea-video survey before decompose: the whole episode on a few overview sheets, then closer sheets where a gap
+    was answered transition / unsure, until the scene changes are settled (survey/timeline.json); decompose cuts the
+    shots there, so dissolves, walking through a door and wipes the cut detector misses become cuts without --cuts.
+    Our model answers (agent: the questions go to analysis/agent/ like every other stage). Only the cuts are asked;
+    the key frames of each shot are the tool's (free). None when this rea-video has no survey: the detector's cuts stand."""
+    out = layout.decomp(work)
+    cmd = [_rea_video_bin(), "survey", str(layout.source(work)), "-o", str(out), "--no-vlm", "--no-detail"]
+    for _ in range(SURVEY_ROUNDS):
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            res = parse_json(p.stdout) if p.returncode == 0 else None
+        except ValueError:
+            res = None
+        if not isinstance(res, dict):
+            LOG.warning("rea-video survey 不可用，只用切镜检测器的切点（升级 rea-video 可以先看全片再切镜）：%s",
+                        (p.stderr or p.stdout).strip()[-300:])
+            return None
+        if res.get("status") != "waiting":
+            LOG.info("survey：%s 镜、%s 个切点", res.get("shots"), res.get("cuts"))
+            return res
+
+        def one(pair: tuple[str, str]) -> None:
+            task = json.loads(Path(pair[0]).read_text(encoding="utf-8"))
+            prompt = SURVEY_PROMPT.format(instructions=task["instructions"],
+                                          request=json.dumps({k: task[k] for k in ("state", "questions")}, ensure_ascii=False),
+                                          template=json.dumps(task["answer_template"], ensure_ascii=False))
+            got = vlm.ask_json(prompt, [out / im for im in task["images"]], max_tokens=4096)
+            layout.put(Path(pair[1]), json.dumps({"filled": True, "by": "rea-toon", **(got if isinstance(got, dict) else {})},
+                                                 ensure_ascii=False, indent=1))
+
+        LOG.info("survey 第 %s 轮：%d 张图", res.get("round"), len(res.get("images") or []))
+        with Pool(workers) as ex:
+            ex.map(one, list(zip(res["tasks"], res["waiting"])))
+    LOG.warning("survey 的答案用不上，只用切镜检测器的切点")
+    return None
+
+
+def _mid(s: dict) -> float:
+    """The shot's middle frame: the key frame nearest the middle (a pose a move settles in or turns at, not a blur
+    halfway through it), else the middle."""
+    start, end = float(s["start"]), float(s["end"])
+    inner = [float(k["t"]) for k in s.get("keyframes") or [] if start + 0.1 < float(k.get("t", -1)) < end - 0.1]
+    mid = (start + end) / 2
+    return min(inner, key=lambda t: abs(t - mid)) if inner else mid
 
 
 def decompose(work: Path) -> dict:
@@ -103,8 +156,8 @@ def split_shots(shots: list[dict], cuts: list[float]) -> list[dict]:
     for s in shots:
         start, end = float(s["start"]), float(s["end"])
         inner = sorted(c for c in cuts if start + 0.3 < c < end - 0.3)
-        for a, b in zip([start, *inner], [*inner, end]):
-            out.append({**s, "start": a, "end": b})
+        for k, (a, b) in enumerate(zip([start, *inner], [*inner, end])):
+            out.append({**s, "start": a, "end": b, **({"transition_in": "cut"} if k else {})})
     for i, s in enumerate(out, 1):
         s["index"] = i
     return out
@@ -118,6 +171,9 @@ def perceive(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[floa
     full=True: one call per shot plus the acting pass from the start (about five times the cost)."""
     src = layout.source(work)
     info = probe(src)
+    vlm = for_work(work) if use_vlm else None
+    if vlm and not layout.decomp(work, "breakdown.json").is_file():
+        survey(work, vlm, workers)
     bd = decompose(work)
     if cuts:
         bd = {**bd, "shots": split_shots(bd["shots"], cuts)}
@@ -130,7 +186,6 @@ def perceive(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[floa
         subs = subs_mod.extract(src)
         layout.put(subs_path, json.dumps(subs, ensure_ascii=False, indent=1))
         subs_mod.to_srt(subs, layout.data(work, "subtitles.srt"))
-    vlm = for_work(work) if use_vlm else None
     if vlm and not all(x.get("checked") for x in subs):
         subs = proofread(subs, vlm)
         layout.put(subs_path, json.dumps(subs, ensure_ascii=False, indent=1))
@@ -151,7 +206,7 @@ def perceive(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[floa
         sid = f"shot_{s['index']:03d}"
         start, end = float(s["start"]), float(s["end"])
         frames = {}
-        for name, t in (("first", start + 0.04), ("mid", (start + end) / 2), ("last", max(start, end - 0.07))):
+        for name, t in (("first", start + 0.04), ("mid", _mid(s)), ("last", max(start, end - 0.07))):
             p = layout.frames(work, f"{sid}_{name}.jpg")
             if not p.is_file():
                 frame_at(src, t, p)
@@ -159,6 +214,9 @@ def perceive(work: Path, use_vlm: bool = True, workers: int = 6, cuts: list[floa
         shots.append({"id": sid, "index": s["index"], "start": round(start, 3), "end": round(end, 3),
                       "duration": round(end - start, 3), "frames": frames,
                       "production": (s.get("base") or {}).get("label"),
+                      **({"transition": TRANSITION_OF[s["transition_in"]]} if s.get("transition_in") in TRANSITION_OF else {}),
+                      **({"keyframes": [round(float(k["t"]), 3) for k in s["keyframes"] if start <= float(k.get("t", -1)) < end]}
+                         if s.get("keyframes") else {}),
                       "subtitles": _subs_in(subs, start, end)})
 
     story = {"schema": "rea_toon.story.v1", "source": json.loads(layout.data(work, "source.json").read_text(encoding="utf-8"))

@@ -82,7 +82,7 @@ One video or a whole series; a series can stop and pick up where it left off. Th
 
 ## How it works
 
-1. **Split**: [rea-video](https://github.com/JuneYaooo/rea-video) cuts the shots and separates voice from music; local OCR reads the subtitle track, only text on the subtitle line.
+1. **Split**: the whole episode is looked at on a few overview sheets first, then closer where a transition or a doubt is, so dissolves and wipes are cut too; [rea-video](https://github.com/JuneYaooo/rea-video) cuts the shots there and separates voice from music; local OCR reads the subtitle track, only text on the subtitle line.
 2. **Cast**: a character table (disguises and costume changes merged into one person), then who is on screen in each shot and what they do.
 3. **Lines**: who says every line across the episode; lines where that disagrees with what the shots show are settled by looking at the frames.
 4. **Read the script**: scenes and the look in each, text on screen, camera angles and eyelines, dramatic beats, the point and emotion of every shot, information gaps; in a series every episode is read with what came before.

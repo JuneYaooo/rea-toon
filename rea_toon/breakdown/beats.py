@@ -32,7 +32,7 @@ def beats(story: dict, work: Path, vlm: VLM, sheets: list[Path]) -> int:
                "keep": [str(x) for x in g.get("keep") or [] if x][:3],
                "fx": [str(x) for x in g.get("fx") or [] if x],
                "transition_in": g.get("transition_in") if g.get("transition_in") in TRANSITIONS else "cut"}
-        seen = transition_seen(work, s)  # the pixels win over the model on flash / fade
+        seen = transition_seen(work, s) or s.get("transition")  # the pixels / the survey win over the model's "cut"
         if seen and key["transition_in"] == "cut":
             key["transition_in"] = seen
         if not g:

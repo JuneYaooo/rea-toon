@@ -21,7 +21,7 @@
   index.html   给人看的唯一入口            VIDEO.md   给模型和下游读的拆片包入口
   story.json   剧本源码，唯一手改、lock 锁它    source.mp4 原片
   video/       拆片包正文（生成的）          pages/     index.html 里显示的页面、PDF、script.md
-  frames/      每镜首中尾帧                characters/ 角色图、配音样本
+  frames/      每镜首中尾帧（中=关键帧）     characters/ 角色图、配音样本
   data/        report.json、字幕轨、source.json、*.prev.json
   analysis/    答案缓存、等 agent 答的题、联系表     decomp/  rea-video 的输出
 ```
@@ -38,7 +38,7 @@
 每个阶段读 story.json → 改 → 重算检查 → 存盘，并重出审核页和拆片包）。下面各阶段模块只改传进来的 story，不自己读写 story.json：
 
 - `ingest.py` 导入视频：只收已经在本地的视频文件，不从链接下载
-- `perceive.py` 感知：切镜/分轨（rea-video）+ 字幕 OCR + VLM 角色表和逐镜拆解（快拆 5 镜一批）
+- `perceive.py` 感知：先看后切（`survey`：rea-video 的全片总览图 → 有转场、拿不准的地方加密细看，题由我们的模型答，只问切点）→ 切镜/分轨（rea-video 按 survey 的切点）+ 字幕 OCR + VLM 角色表和逐镜拆解（快拆 5 镜一批）
 - `subtitles.py` 字幕轨（纯本地 OCR）：只认字幕行上的字（`find_row`），画面里的字不进台词；`redo subtitles` 只重读字幕轨
 - `refine.py` 全剧级核对：字幕校对、逐句标说话人（先按上下文，和逐镜看图不一致的句子再看图裁决）、合并乔装/换装的同一角色
 - `breakdown/` 深度拆解，一个文件一类：`scenes`（画风档案、分场造型）、`screen_text`（画面文字）、`staging`（机位视线特效）、

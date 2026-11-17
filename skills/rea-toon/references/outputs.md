@@ -10,7 +10,7 @@ work/<名字>/
   source.mp4     原片
   video/         拆片包正文：scenes.md timeline.md content.md cast.md x-report.md shots/NN.md transcript.vtt
   pages/         index.html 里显示的页面：report.html script.html storyboard.html breakdown.html；script.md、*.pdf
-  frames/        每镜的首 / 中 / 尾帧（story.json 里的路径相对本目录）
+  frames/        每镜的首 / 中 / 尾帧，中帧取最靠中间的关键帧（动作停下、转折的那一下；story.json 里的路径相对本目录）
   characters/    每个角色的头像、造型图、配音样本；分镜缩略图在 characters/shots/
   data/          程序数据：source.json report.json subtitles.json / .srt，*.prev.json（重做前的备份）
   analysis/      中间产物：模型答案缓存 vlm_cache/、等 agent 作答的题 agent/、联系表、看图用的拼图
