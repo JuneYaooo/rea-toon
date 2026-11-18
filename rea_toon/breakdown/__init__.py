@@ -22,7 +22,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from .. import layout
 from ..media import contact_sheets
 from ..vlm import VLM
 from . import acting, beats, motion, scenes, screen_text, staging
@@ -33,9 +32,9 @@ LOG = logging.getLogger(__name__)
 def run(story: dict, work: Path, vlm: VLM, workers: int = 6) -> None:
     """All deep passes over a perceived story, in place. A pass that fails is logged and the rest go on
     (lint reports what is missing); the scenes and beats calls are the spine and raise."""
-    # in shot order: by name, contact_10 would come before contact_2
-    sheets = (sorted(layout.analysis(work).glob("contact_*.jpg"), key=lambda p: int(p.stem.rsplit("_", 1)[-1]))
-              or contact_sheets(story["shots"], work))
+    # the whole episode at a glance for scenes and beats: 24 shots a picture, half the pictures of the cast's sheets
+    # (those tell faces apart); made again every run, so they always follow the shots
+    sheets = contact_sheets(story["shots"], work, per_sheet=24, name="glance", fit=True)
     LOG.info("深度拆解：画风档案 + 分场 …")
     scenes.scenes(story, work, vlm, sheets, workers)
     LOG.info("深度拆解：画面里的文字（招牌/屏幕/花字/水印）…")

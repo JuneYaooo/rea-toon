@@ -267,9 +267,19 @@ def image_motion(video: Path, start: float, dur: float, masks: list | None = Non
 
 # ---- contact sheets: several shots in one picture for one model call ----
 
-def contact_sheets(shots: list[dict], work: Path, per_sheet: int = 12, cols: int | None = None) -> list[Path]:
+SHEET_SIDE, SHEET_PIX = 1568, 1_150_000  # the largest picture a model reads without shrinking it (Claude; others are close)
+
+
+def contact_sheets(shots: list[dict], work: Path, per_sheet: int = 12, cols: int | None = None, name: str = "contact",
+                   fit: bool = False) -> list[Path]:
     """The middle frame of every shot, numbered, twelve to a picture. A tile keeps the shape of the video: a vertical
-    drama squeezed into wide tiles spends the same pixels on faces three times too wide."""
+    drama squeezed into wide tiles spends the same pixels on faces three times too wide.
+    A model scales every picture down to about the same size, so `per_sheet` is the price: twelve where faces are
+    told apart (the cast), twenty-four where the whole episode is read (scenes, beats: half the pictures).
+    fit: saved at the size the model reads (SHEET_SIDE / SHEET_PIX), not shrunk on its side; a reader that prices by
+    image tiles pays for the pixels sent."""
+    for old in layout.analysis(work).glob(f"{name}_*.jpg"):  # a sheet of an earlier cut with more shots
+        old.unlink()
     font = ImageFont.truetype(font_path(), 34) if font_path() else ImageFont.load_default()
     paths = []
     w0, h0 = Image.open(work / shots[0]["frames"]["mid"]).size if shots else (16, 9)
@@ -285,7 +295,11 @@ def contact_sheets(shots: list[dict], work: Path, per_sheet: int = 12, cols: int
             d.rectangle([0, 0, 64, 42], fill="white")
             d.text((6, 2), str(s["index"]), fill="black", font=font)
             sheet.paste(im, ((i % cols) * tw, (i // cols) * th))
-        p = layout.analysis(work, f"contact_{k // per_sheet + 1}.jpg")
+        if fit:
+            r = min(1.0, SHEET_SIDE / max(sheet.size), (SHEET_PIX / (sheet.width * sheet.height)) ** 0.5)
+            if r < 1:
+                sheet = sheet.resize((round(sheet.width * r), round(sheet.height * r)), Image.LANCZOS)
+        p = layout.analysis(work, f"{name}_{k // per_sheet + 1}.jpg")
         p.parent.mkdir(parents=True, exist_ok=True)
         sheet.save(p, quality=88)
         paths.append(p)
