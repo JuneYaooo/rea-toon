@@ -411,15 +411,11 @@ def yunet() -> Path:
 
 
 def face_detector(size: tuple[int, int], score: float, nms: float, top_k: int):
-    """YuNet loaded from memory, so a non-ASCII home folder on Windows works; OpenCV without that overload uses the path."""
+    """YuNet loaded from memory (OpenCV 4.9+): loading by path fails for a non-ASCII home folder on Windows."""
     import cv2
     import numpy as np
-    model = yunet()
-    try:
-        return cv2.FaceDetectorYN.create("onnx", np.fromfile(str(model), dtype=np.uint8), np.empty(0, np.uint8),
-                                         size, score, nms, top_k)
-    except (cv2.error, TypeError):
-        return cv2.FaceDetectorYN.create(str(model), "", size, score, nms, top_k)
+    return cv2.FaceDetectorYN.create("onnx", np.fromfile(str(yunet()), dtype=np.uint8), np.empty(0, np.uint8),
+                                     size, score, nms, top_k)
 
 
 def faces(image: Path, min_frac: float = 0.04) -> list[tuple[float, float, float, float, float]]:
