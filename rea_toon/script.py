@@ -28,7 +28,7 @@ from PIL import Image
 from . import lang, layout
 from .breakdown.staging import ANGLE_CN
 from .checks import _side
-from .media import faces, run
+from .media import faces, read_image, run
 from .page import esc, page, player, site, stamp
 from .lang import part as _part
 from .story import ROLE_CN, lines_of, load, name_in
@@ -102,7 +102,7 @@ def _frame(work: Path, s: dict, name: str) -> Image.Image:
     import cv2
     import numpy as np
     t = {"first": s["start"] + 0.04, "mid": (s["start"] + s["end"]) / 2, "last": s["end"] - 0.07}[name]
-    img = cv2.imread(str(work / s["frames"][name]))
+    img = read_image(work / s["frames"][name])
     boxes = [x["box"] for x in s.get("subtitles") or [] if x.get("box") and x["start"] - 0.1 <= t <= x["end"] + 0.1]
     if boxes:
         h, w = img.shape[:2]

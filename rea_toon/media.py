@@ -52,9 +52,22 @@ def font_path() -> str | None:
 
 
 
+def read_image(path, flags: int | None = None):
+    """cv2.imread that also opens non-ASCII paths on Windows (imread returns None there). None if unreadable."""
+    import cv2
+    import numpy as np
+    try:
+        data = np.fromfile(str(path), dtype=np.uint8)
+    except OSError:
+        return None
+    if not data.size:
+        return None
+    return cv2.imdecode(data, cv2.IMREAD_COLOR if flags is None else flags)
+
+
 def mean_luma(p: Path) -> float:
     import cv2
-    return float(cv2.imread(str(p), cv2.IMREAD_GRAYSCALE).mean())
+    return float(read_image(p, cv2.IMREAD_GRAYSCALE).mean())
 
 
 
@@ -404,7 +417,7 @@ def faces(image: Path, min_frac: float = 0.04) -> list[tuple[float, float, float
         cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)  # YuNet warns about backends on every call
     except AttributeError:
         pass
-    img = cv2.imread(str(image))
+    img = read_image(image)
     if img is None:
         return []
     h, w = img.shape[:2]
