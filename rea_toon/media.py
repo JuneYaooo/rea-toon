@@ -410,6 +410,18 @@ def yunet() -> Path:
     return p
 
 
+def face_detector(size: tuple[int, int], score: float, nms: float, top_k: int):
+    """YuNet loaded from memory, so a non-ASCII home folder on Windows works; OpenCV without that overload uses the path."""
+    import cv2
+    import numpy as np
+    model = yunet()
+    try:
+        return cv2.FaceDetectorYN.create("onnx", np.fromfile(str(model), dtype=np.uint8), np.empty(0, np.uint8),
+                                         size, score, nms, top_k)
+    except (cv2.error, TypeError):
+        return cv2.FaceDetectorYN.create(str(model), "", size, score, nms, top_k)
+
+
 def faces(image: Path, min_frac: float = 0.04) -> list[tuple[float, float, float, float, float]]:
     """Faces in a picture as (x, y, w, h, score) in pixels, biggest first; tiny background faces left out."""
     import cv2
@@ -421,7 +433,7 @@ def faces(image: Path, min_frac: float = 0.04) -> list[tuple[float, float, float
     if img is None:
         return []
     h, w = img.shape[:2]
-    det = cv2.FaceDetectorYN.create(str(yunet()), "", (w, h), 0.6, 0.3, 20)
+    det = face_detector((w, h), 0.6, 0.3, 20)
     _, found = det.detect(img)
     out = [tuple(float(v) for v in (*r[:4], r[-1])) for r in (found if found is not None else []) if r[2] >= w * min_frac]
     return sorted(out, key=lambda f: -f[2] * f[3])
