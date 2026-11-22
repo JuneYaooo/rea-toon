@@ -13,6 +13,8 @@ import statistics
 from collections import Counter
 from pathlib import Path
 
+from .media import read_image
+
 LOG = logging.getLogger(__name__)
 _OCR = None
 
@@ -43,7 +45,7 @@ def read_text(frame, min_score: float = 0.7) -> list[dict]:
     """All text OCR finds in a picture (BGR array or image path): [{text, box: normalized [x0,y0,x1,y1]}]."""
     import cv2
     if not hasattr(frame, "shape"):
-        frame = cv2.imread(str(frame))
+        frame = read_image(frame)
         if frame is None:
             return []
     h, w = frame.shape[:2]
